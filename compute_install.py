@@ -25,7 +25,7 @@
 # If not, please use "apt-get install python" or "yum install python" to do that.
 
 
-import os, sys, getopt
+import os, sys, platform, getopt
 import ConfigParser
 
 ADMIN_PASS = 'cisco123'
@@ -70,6 +70,27 @@ def create_env_script():
     demo_openrc.write('export OS_IDENTITY_API_VERSION=3\n')
     demo_openrc.write('export OS_IMAGE_API_VERSION=2\n')
     demo_openrc.close()
+
+
+def get_distribution():
+    ######################################################################
+    # get host distribution info, now only support Ubuntu16.04 and CentOS7
+    ######################################################################
+    if platform.system() == 'Linux':
+        try:
+            distribution = platform.linux_distribution()[0].capitalize()
+            version = platform.linux_distribution()[1].capitalize()
+            if 'Ubuntu' in distribution and version == '16.04':
+                distribution = 'Ubuntu'
+            elif 'Centos' in distribution and version.startswith('7.'):
+                distribution = 'CentOS'
+            else:
+                distribution = 'OtherLinux'
+        except:
+            distribution = platform.dist()[0].capitalize()
+    else:
+        distribution = None
+    return distribution
 
 
 def ubuntu_ntp_install():
@@ -229,6 +250,7 @@ def ubuntu_install(ipaddr, hostname, interface, network):
     ##################################################################### 
     # config network
     ##################################################################### 
+    os.system('hostname ' + hostname)
     os.system('cp /etc/hostname /etc/hostname.bak')
     print "cp /etc/hostname done!"
     os.system('echo '+hostname+' > /etc/hostname')
@@ -410,6 +432,7 @@ def centos_install(ipaddr, hostname, interface, network):
     ##################################################################### 
     # config network
     ##################################################################### 
+    os.system('hostname ' + hostname)
     os.system('cp /etc/hostname /etc/hostname.bak')
     print "cp /etc/hostname done!"
     os.system('echo '+hostname+' > /etc/hostname')
@@ -447,9 +470,8 @@ def centos_install(ipaddr, hostname, interface, network):
 
 def usage():
     print 'compute_install.py [options]'
+    print 'now only support Ubuntu16.04 and CentOS7'
     print 'Options:'
-    print '-p, --platform=<Platform>     host OS platform (Ubuntu or CentOS)'
-    print '                              now only support Ubuntu16.04 and CentOS7'
     print '-n, --network=<NetworkType>   network type (Provider or Self-service)'
     print '-m, --hostname=<HostName>     host name'
     print '-i, --ipaddr=<IPAddress>      host IP address'
@@ -466,7 +488,7 @@ def main(argv):
     hostname = ''
     interface = ''
     try:
-        opts, args = getopt.getopt(argv,"hp:n:i:m:f:",["platform=","network=","ipaddr=","hostname=","interface="])
+        opts, args = getopt.getopt(argv,"hn:i:m:f:",["network=","ipaddr=","hostname=","interface="])
     except getopt.GetoptError:
         usage()
         sys.exit(2)
@@ -474,8 +496,6 @@ def main(argv):
         if opt == '-h':
            usage()
            sys.exit()
-        elif opt in ("-p", "--platform"):
-           platform = arg
         elif opt in ("-n", "--network"):
            network = arg
         elif opt in ("-i", "--ipaddr"):
@@ -486,18 +506,19 @@ def main(argv):
            interface = arg
 
     # check param integrity
-    if platform == '' or network == '' or ipaddr == '' or hostname == '' or interface == '':
+    if network == '' or ipaddr == '' or hostname == '' or interface == '':
         usage()
         sys.exit()
 
-    if platform == 'Ubuntu' or platform == 'ubuntu':
+    platform = get_distribution()
+
+    if platform == 'Ubuntu':
         ubuntu_install(ipaddr, hostname, interface, network)
-    elif platform == 'CentOS' or platform == 'centOS' or platform == 'centos':
+    elif platform == 'CentOS':
         centos_install(ipaddr, hostname, interface, network)
     else :
+        print 'Unsupported host platform!'
         usage()
-
-
 
 
 if __name__ == "__main__":

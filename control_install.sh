@@ -20,9 +20,9 @@
 #
 # main()
 #
-if [ $# -ne 5 ] ; then
-    echo "Openstack newton installation script on Ubuntu16.04 or CentOS7"
-	echo Usage: "`basename $0` [ Ubuntu | CentOS ] [ Provider | Self-service ] HOSTNAME IPADDRESS INTERFACE"
+if [ $# -ne 4 ] ; then
+	echo Usage: "`basename $0` [ Provider | Self-service ] HOSTNAME IPADDRESS INTERFACE"
+	echo "Currently only support Ubuntu16.04 and CentOS7"
 	echo "HOSTNAME     host name"
 	echo "IPADDRESS    host IP address"
 	echo "             for Self-service network, it should be"
@@ -32,11 +32,12 @@ if [ $# -ne 5 ] ; then
 	exit 1
 fi
 
-PLATFORM=$1
-NETWORK=$2
-HOSTNAME=$3
-IPADDR=$4
-INTERFACE=$5
+PLATFORM=$(lsb_release -is 2>/dev/null)
+VERSION=$(lsb_release -rs 2>/dev/null)
+NETWORK=$1
+HOSTNAME=$2
+IPADDR=$3
+INTERFACE=$4
 
 
 if [ $(id -un) != "root" ]; then
@@ -44,14 +45,19 @@ if [ $(id -un) != "root" ]; then
     exit 1
 fi
 
-if [ $PLATFORM == "Ubuntu" ]; then
+if [ $PLATFORM == "Ubuntu" ] && [ $VERSION == "16.04" ]; then
+    #echo "on Ubuntu platform"
     apt update && apt full-upgrade -y
     apt install python python-mysqldb -y
-else
+    python control_install.py -n $NETWORK -m $HOSTNAME -i $IPADDR -f $INTERFACE
+elif [ $PLATFORM == "CentOS" ] && [ ${VERSION:0:2} == "7." ]; then
+    #echo "on CentOS platform"
     yum upgrade -y
     yum install python MySQL-python -y
+    python control_install.py -n $NETWORK -m $HOSTNAME -i $IPADDR -f $INTERFACE
+else
+    echo "Unsupport host platform!"
 fi
 
-python control_install.py -p $PLATFORM -n $NETWORK -m $HOSTNAME -i $IPADDR -f $INTERFACE
 
 

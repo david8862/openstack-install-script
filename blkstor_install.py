@@ -25,7 +25,7 @@
 # If not, please use "apt-get install python" or "yum install python" to do that.
 
 
-import os, sys, getopt
+import os, sys, platform, getopt
 import ConfigParser
 
 ADMIN_PASS = 'cisco123'
@@ -66,6 +66,27 @@ def create_env_script():
     demo_openrc.write('export OS_IDENTITY_API_VERSION=3\n')
     demo_openrc.write('export OS_IMAGE_API_VERSION=2\n')
     demo_openrc.close()
+
+
+def get_distribution():
+    ######################################################################
+    # get host distribution info, now only support Ubuntu16.04 and CentOS7
+    ######################################################################
+    if platform.system() == 'Linux':
+        try:
+            distribution = platform.linux_distribution()[0].capitalize()
+            version = platform.linux_distribution()[1].capitalize()
+            if 'Ubuntu' in distribution and version == '16.04':
+                distribution = 'Ubuntu'
+            elif 'Centos' in distribution and version.startswith('7.'):
+                distribution = 'CentOS'
+            else:
+                distribution = 'OtherLinux'
+        except:
+            distribution = platform.dist()[0].capitalize()
+    else:
+        distribution = None
+    return distribution
 
 
 def ubuntu_ntp_install():
@@ -176,6 +197,7 @@ def ubuntu_install(volume, ipaddr, hostname):
     ##################################################################### 
     # config network
     ##################################################################### 
+    os.system('hostname ' + hostname)
     os.system('cp /etc/hostname /etc/hostname.bak')
     print "cp /etc/hostname done!"
     os.system('echo '+hostname+' > /etc/hostname')
@@ -283,6 +305,7 @@ def centos_install(volume, ipaddr, hostname):
     ##################################################################### 
     # config network
     ##################################################################### 
+    os.system('hostname ' + hostname)
     os.system('cp /etc/hostname /etc/hostname.bak')
     print "cp /etc/hostname done!"
     os.system('echo '+hostname+' > /etc/hostname')
@@ -320,9 +343,8 @@ def centos_install(volume, ipaddr, hostname):
 
 def usage():
     print 'blkstor_install.py [options]'
+    print 'now only support Ubuntu16.04 and CentOS7'
     print 'Options:'
-    print '-p, --platform=<Platform>     host OS platform (Ubuntu or CentOS)'
-    print '                              now only support Ubuntu16.04 and CentOS7'
     print '-v, --volume=<VolumeName>     Physical volume device name for cinder'
     print '                              service. e.g. sdb(not /dev/sdb!)'
     print '-m, --hostname=<HostName>     host name'
@@ -337,7 +359,7 @@ def main(argv):
     ipaddr = ''
     hostname = ''
     try:
-        opts, args = getopt.getopt(argv,"hp:v:i:m:",["platform=","volume=","ipaddr=","hostname="])
+        opts, args = getopt.getopt(argv,"hv:i:m:",["volume=","ipaddr=","hostname="])
     except getopt.GetoptError:
         usage()
         sys.exit(2)
@@ -345,8 +367,6 @@ def main(argv):
         if opt == '-h':
            usage()
            sys.exit()
-        elif opt in ("-p", "--platform"):
-           platform = arg
         elif opt in ("-v", "--volume"):
            volume = arg
         elif opt in ("-i", "--ipaddr"):
@@ -355,18 +375,19 @@ def main(argv):
            hostname = arg
 
     # check param integrity
-    if platform == '' or volume == '' or ipaddr == '' or hostname == '':
+    if volume == '' or ipaddr == '' or hostname == '':
         usage()
         sys.exit()
 
-    if platform == 'Ubuntu' or platform == 'ubuntu':
+    platform = get_distribution()
+
+    if platform == 'Ubuntu':
         ubuntu_install(volume, ipaddr, hostname)
-    elif platform == 'CentOS' or platform == 'centOS' or platform == 'centos':
+    elif platform == 'CentOS':
         centos_install(volume, ipaddr, hostname)
     else :
+        print 'Unsupported host platform!'
         usage()
-
-
 
 
 if __name__ == "__main__":

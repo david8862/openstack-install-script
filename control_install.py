@@ -26,7 +26,8 @@
 # or "yum install python python-mysqldb" to do that.
 
 
-import os, sys, getopt
+import os, sys, platform, time, getopt
+from termios import tcflush, TCIFLUSH
 import MySQLdb
 import ConfigParser
 
@@ -44,6 +45,13 @@ NEUTRON_PASS = 'cisco123'
 METADATA_SECRET = 'cisco123'
 CINDER_DBPASS = 'cisco123'
 CINDER_PASS = 'cisco123'
+HEAT_DBPASS = 'cisco123'
+HEAT_PASS = 'cisco123'
+HEAT_DOMAIN_PASS = 'cisco123'
+MANILA_DBPASS = 'cisco123'
+MANILA_PASS = 'cisco123'
+TROVE_DBPASS = 'cisco123'
+TROVE_PASS = 'cisco123'
 
 DB_NAME = 'controller'
 MQ_NAME = 'controller'
@@ -53,6 +61,10 @@ GLANCE_NAME = 'controller'
 NOVA_NAME = 'controller'
 NEUTRON_NAME = 'controller'
 CINDER_NAME = 'controller'
+HEAT_NAME = 'controller'
+MANILA_NAME = 'controller'
+TROVE_NAME = 'controller'
+SWIFT_NAME = 'controller'
 
 
 
@@ -101,6 +113,27 @@ def create_env_script():
     demo_openrc.write('export OS_IDENTITY_API_VERSION=3\n')
     demo_openrc.write('export OS_IMAGE_API_VERSION=2\n')
     demo_openrc.close()
+
+
+def get_distribution():
+    ######################################################################
+    # get host distribution info, now only support Ubuntu16.04 and CentOS7
+    ######################################################################
+    if platform.system() == 'Linux':
+        try:
+            distribution = platform.linux_distribution()[0].capitalize()
+            version = platform.linux_distribution()[1].capitalize()
+            if 'Ubuntu' in distribution and version == '16.04':
+                distribution = 'Ubuntu'
+            elif 'Centos' in distribution and version.startswith('7.'):
+                distribution = 'CentOS'
+            else:
+                distribution = 'OtherLinux'
+        except:
+            distribution = platform.dist()[0].capitalize()
+    else:
+        distribution = None
+    return distribution
 
 
 def openstack_config(network):
@@ -177,6 +210,10 @@ def ubuntu_db_install(ipaddr, hostname):
     # NOTE: For Ubuntu, we should set root passwd and choose other option
     #       as "n" here to make sure the MariaDB could be access
     ##################################################################### 
+    time.sleep(2)
+    tcflush(sys.stdin, TCIFLUSH)
+    print "Will set MariaDB. Please set a root passwd and choose 'n' for all other options"
+    raw_input("Press enter to continue: ")
     os.system('mysql_secure_installation')
 
     ##################################################################### 
@@ -578,7 +615,9 @@ def ubuntu_neutron_install(ipaddr, hostname, interface, network):
     else:
         print "Seems nova service not install on this host"
         print "Please edit /etc/nova/nova.conf on your nova service host for neutron"
-        raw_input("Press any key to continue: ")
+        time.sleep(2)
+        tcflush(sys.stdin, TCIFLUSH)
+        raw_input("Press enter to continue: ")
 
 
     os.system('su -s /bin/sh -c "neutron-db-manage --config-file /etc/neutron/neutron.conf --config-file /etc/neutron/plugins/ml2/ml2_conf.ini upgrade head" neutron')
@@ -708,6 +747,284 @@ def ubuntu_cinder_install(ipaddr, hostname):
     os.system('service cinder-scheduler restart')
     os.system('service cinder-api restart')
 
+def ubuntu_heat_install(hostname):
+    ##################################################################### 
+    # install & config Cinder
+    ##################################################################### 
+    global HEAT_NAME
+    HEAT_NAME = hostname
+    con = MySQLdb.connect(DB_NAME, 'root', MYSQL_PASS)
+    cursor = con.cursor()
+    cursor.execute('DROP DATABASE IF EXISTS heat;')
+    cursor.execute('CREATE DATABASE heat;')
+    cursor.execute('GRANT ALL PRIVILEGES ON heat.* TO \'heat\'@\'localhost\' IDENTIFIED BY \''+HEAT_DBPASS+'\';')
+    cursor.execute('GRANT ALL PRIVILEGES ON heat.* TO \'heat\'@\'%\' IDENTIFIED BY \''+HEAT_DBPASS+'\';')
+    cursor.close()
+
+    export_admin()
+    os.system('openstack user create --domain default --password '+HEAT_PASS+' heat')
+    os.system('openstack role add --project service --user heat admin')
+    os.system('openstack service create --name heat --description "Orchestration" orchestration')
+    os.system('openstack service create --name head-cfn --description "Orchestration" cloudformation')
+    os.system('openstack endpoint create --region RegionOne orchestration public http://'+HEAT_NAME+':8004/v1/%\(tenant_id\)s')
+    os.system('openstack endpoint create --region RegionOne orchestration internal http://'+HEAT_NAME+':8004/v1/%\(tenant_id\)s')
+    os.system('openstack endpoint create --region RegionOne orchestration admin http://'+HEAT_NAME+':8004/v1/%\(tenant_id\)s')
+    os.system('openstack endpoint create --region RegionOne cloudformation public http://'+HEAT_NAME+':8000/v1')
+    os.system('openstack endpoint create --region RegionOne cloudformation internal http://'+HEAT_NAME+':8000/v1')
+    os.system('openstack endpoint create --region RegionOne cloudformation admin http://'+HEAT_NAME+':8000/v1')
+
+    os.system('openstack domain create --description "Stack projects and users" heat')
+    os.system('openstack user create --domain heat --password '+HEAT_DOMAIN_PASS+' heat_domain_admin')
+    os.system('openstack role add --domain heat --user-domain heat --user heat_domain_admin admin')
+    os.system('openstack role create heat_stack_owner')
+    os.system('openstack role add --project demo --user demo heat_stack_owner')
+    os.system('openstack role create heat_stack_user')
+
+    os.system('sudo apt-get install heat-api heat-api-cfn heat-engine -y')
+
+    heat_default = {'transport_url':'rabbit://openstack:'+RABBIT_PASS+'@'+MQ_NAME, 'heat_metadata_server_url':'http://'+HEAT_NAME+':8000', 'heat_waitcondition_server_url':'http://'+HEAT_NAME+':8000/v1/waitcondition', 'stack_domain_admin':'heat_domain_admin', 'stack_domain_admin_password':HEAT_DOMAIN_PASS, 'stack_user_domain_name':'heat'}
+
+    heat_keystone_authtoken = {'auth_uri':'http://'+KEYSTONE_NAME+':5000','auth_url':'http://'+KEYSTONE_NAME+':35357', 'memcached_servers':MEMCACHE_NAME+':11211', 'auth_type':'password', 'project_domain_name':'default', 'user_domain_name': 'default', 'project_name':'service', 'username':'heat', 'password':HEAT_PASS}
+
+    heat_trustee = {'auth_type':'password', 'auth_url':'http://'+KEYSTONE_NAME+':35357', 'username':'heat', 'password':HEAT_PASS, 'user_domain_name': 'default'}
+
+    config = ConfigParser.ConfigParser()
+    os.system('cp /etc/heat/heat.conf /etc/heat/heat.conf.bak')
+    print "cp /etc/heat/heat.conf done!"
+    with open('/etc/heat/heat.conf', 'rw') as cfgfile:
+        config.readfp(cfgfile)
+        sections = config.sections()
+        if 'database' not in sections:
+            config.add_section('database')
+        config.set('database', 'connection', 'mysql+pymysql://heat:'+HEAT_DBPASS+'@'+DB_NAME+'/heat')
+        for (k,v) in heat_default.iteritems():
+            config.set('DEFAULT', k, v)
+        if 'keystone_authtoken' not in sections:
+            config.add_section('keystone_authtoken')
+        for (k,v) in heat_keystone_authtoken.iteritems():
+            config.set('keystone_authtoken', k, v)
+        if 'trustee' not in sections:
+            config.add_section('trustee')
+        for (k,v) in heat_trustee.iteritems():
+            config.set('trustee', k, v)
+        if 'clients_keystone' not in sections:
+            config.add_section('clients_keystone')
+        config.set('clients_keystone', 'auth_uri', 'http://'+KEYSTONE_NAME+':35357')
+        if 'ec2authtoken' not in sections:
+            config.add_section('ec2authtoken')
+        config.set('ec2authtoken', 'auth_uri', 'http://'+KEYSTONE_NAME+':5000')
+        config.write(open('/etc/heat/heat.conf', 'w'))
+        #cfgfile.close()
+
+    os.system('su -s /bin/sh -c "heat-manage db_sync" heat')
+    os.system('service heat-api restart')
+    os.system('service heat-api-cfn restart')
+    os.system('service heat-engine restart')
+
+
+def ubuntu_manila_install(ipaddr, hostname):
+    ##################################################################### 
+    # install & config Manila
+    ##################################################################### 
+    global MANILA_NAME
+    MANILA_NAME = hostname
+    con = MySQLdb.connect(DB_NAME, 'root', MYSQL_PASS)
+    cursor = con.cursor()
+    cursor.execute('DROP DATABASE IF EXISTS manila;')
+    cursor.execute('CREATE DATABASE manila;')
+    cursor.execute('GRANT ALL PRIVILEGES ON manila.* TO \'manila\'@\'localhost\' IDENTIFIED BY \''+MANILA_DBPASS+'\';')
+    cursor.execute('GRANT ALL PRIVILEGES ON manila.* TO \'manila\'@\'%\' IDENTIFIED BY \''+MANILA_DBPASS+'\';')
+    cursor.close()
+
+    export_admin()
+    os.system('openstack user create --domain default --password '+MANILA_PASS+' manila')
+    os.system('openstack role add --project service --user manila admin')
+    os.system('openstack service create --name manila --description "OpenStack Shared File Systems" share')
+    os.system('openstack service create --name manilav2 --description "OpenStack Shared File Systems" sharev2')
+    os.system('openstack endpoint create --region RegionOne share public http://'+MANILA_NAME+':8786/v1/%\(tenant_id\)s')
+    os.system('openstack endpoint create --region RegionOne share internal http://'+MANILA_NAME+':8786/v1/%\(tenant_id\)s')
+    os.system('openstack endpoint create --region RegionOne share admin http://'+MANILA_NAME+':8786/v1/%\(tenant_id\)s')
+    os.system('openstack endpoint create --region RegionOne sharev2 public http://'+MANILA_NAME+':8786/v2/%\(tenant_id\)s')
+    os.system('openstack endpoint create --region RegionOne sharev2 internal http://'+MANILA_NAME+':8786/v2/%\(tenant_id\)s')
+    os.system('openstack endpoint create --region RegionOne sharev2 admin http://'+MANILA_NAME+':8786/v2/%\(tenant_id\)s')
+
+    ################################################################################################# 
+    # TODO: currently manila ui plugin python-manila-ui have problem on Ubuntu 16.04 newton release.
+    #       may need to wait for a suitable SW package.
+    ################################################################################################# 
+    #os.system('sudo apt-get install manila-api manila-scheduler python-manilaclient python-manila-ui -y')
+    os.system('sudo apt-get install manila-api manila-scheduler python-manilaclient -y')
+
+    manila_default = {'transport_url':'rabbit://openstack:'+RABBIT_PASS+'@'+MQ_NAME, 'auth_strategy':'keystone', 'my_ip':ipaddr, 'default_share_type':'default_share_type', 'share_name_template':'share-%s', 'rootwrap_config':'/etc/manila/rootwrap.conf', 'api_paste_config':'/etc/manila/api-paste.ini'}
+
+    manila_keystone_authtoken = {'auth_uri':'http://'+KEYSTONE_NAME+':5000','auth_url':'http://'+KEYSTONE_NAME+':35357', 'memcached_servers':MEMCACHE_NAME+':11211', 'auth_type':'password', 'project_domain_id':'default', 'user_domain_id': 'default', 'project_name':'service', 'username':'manila', 'password':MANILA_PASS}
+
+    config = ConfigParser.ConfigParser()
+    os.system('cp /etc/manila/manila.conf /etc/manila/manila.conf.bak')
+    print "cp /etc/manila/manila.conf done!"
+    with open('/etc/manila/manila.conf', 'rw') as cfgfile:
+        config.readfp(cfgfile)
+        sections = config.sections()
+        if 'database' not in sections:
+            config.add_section('database')
+        config.set('database', 'connection', 'mysql+pymysql://manila:'+MANILA_DBPASS+'@'+DB_NAME+'/manila')
+        for (k,v) in manila_default.iteritems():
+            config.set('DEFAULT', k, v)
+        if 'keystone_authtoken' not in sections:
+            config.add_section('keystone_authtoken')
+        for (k,v) in manila_keystone_authtoken.iteritems():
+            config.set('keystone_authtoken', k, v)
+        if 'oslo_concurrency' not in sections:
+            config.add_section('oslo_concurrency')
+        config.set('oslo_concurrency', 'lock_path', '/var/lock/manila')
+        config.write(open('/etc/manila/manila.conf', 'w'))
+        #cfgfile.close()
+
+    os.system('su -s /bin/sh -c "manila-manage db sync" manila')
+    os.system('service manila-scheduler restart')
+    os.system('service manila-api restart')
+    #os.system('service apache2 restart')
+    #os.system('service memcached restart')
+    os.system('rm -rf /var/lib/manila/manila.sqlite')
+
+
+def ubuntu_trove_install(hostname):
+    ##################################################################### 
+    # install & config Trove
+    ##################################################################### 
+    global TROVE_NAME
+    TROVE_NAME = hostname
+    con = MySQLdb.connect(DB_NAME, 'root', MYSQL_PASS)
+    cursor = con.cursor()
+    cursor.execute('DROP DATABASE IF EXISTS trove;')
+    cursor.execute('CREATE DATABASE trove;')
+    cursor.execute('GRANT ALL PRIVILEGES ON trove.* TO \'trove\'@\'localhost\' IDENTIFIED BY \''+TROVE_DBPASS+'\';')
+    cursor.execute('GRANT ALL PRIVILEGES ON trove.* TO \'trove\'@\'%\' IDENTIFIED BY \''+TROVE_DBPASS+'\';')
+    cursor.close()
+
+    export_admin()
+    os.system('openstack user create --domain default --password '+TROVE_PASS+' trove')
+    os.system('openstack role add --project service --user trove admin')
+    os.system('openstack service create --name trove --description "OpenStack Database" database')
+    os.system('openstack endpoint create --region RegionOne database public http://'+TROVE_NAME+':8779/v1.0/%\(tenant_id\)s')
+    os.system('openstack endpoint create --region RegionOne database internal http://'+TROVE_NAME+':8779/v1.0/%\(tenant_id\)s')
+    os.system('openstack endpoint create --region RegionOne database admin http://'+TROVE_NAME+':8779/v1.0/%\(tenant_id\)s')
+
+    os.system('sudo apt-get install python-trove python-troveclient python-glanceclient trove-common trove-api trove-taskmanager trove-conductor -y')
+
+
+    ##################################################################### 
+    # check and get /etc/trove/api-paste.ini
+    ##################################################################### 
+    if not os.path.exists('/etc/trove/api-paste.ini'):
+        os.system('sudo curl -o /etc/trove/api-paste.ini http://git.openstack.org/cgit/openstack/trove/plain/etc/trove/api-paste.ini?h=stable/newton')
+    ##################################################################### 
+    # check and get /etc/trove/trove-guestagent.conf
+    ##################################################################### 
+    if not os.path.exists('/etc/trove/trove-guestagent.conf'):
+        os.system('sudo curl -o /etc/trove/trove-guestagent.conf http://git.openstack.org/cgit/openstack/trove/plain/etc/trove/trove-guestagent.conf.sample?h=stable/newton')
+
+
+    trove_all_default = {'log_dir':'/var/log/trove', 'trove_auth_url':'http://'+KEYSTONE_NAME+':5000/v2.0', 'nova_compute_url':'http://'+NOVA_NAME+':8774/v2', 'cinder_url':'http://'+CINDER_NAME+':8776/v1', 'swift_url':'http://'+SWIFT_NAME+':8080/v1/AUTH_', 'notifier_queue_hostname':MQ_NAME, 'rpc_backend':'rabbit'}
+
+    trove_all_oslo_messaging_rabbit = {'rabbit_host':MQ_NAME, 'rabbit_userid':'openstack', 'rabbit_password':RABBIT_PASS}
+
+    trove_default = {'auth_strategy':'keystone', 'add_addresses':'True', 'network_label_regex':'^NETWORK_LABEL$', 'api_paste_config':'/etc/trove/api-paste.ini'}
+
+    trove_keystone_authtoken = {'auth_uri':'http://'+KEYSTONE_NAME+':5000','auth_url':'http://'+KEYSTONE_NAME+':35357', 'auth_type':'password', 'project_domain_name':'default', 'user_domain_name': 'default', 'project_name':'service', 'username':'trove', 'password':TROVE_PASS}
+
+    trove_taskmanager_default = {'nova_proxy_admin_user':'admin', 'nova_proxy_admin_pass':ADMIN_PASS, 'nova_proxy_admin_tenant_name':'service', 'taskmanager_manager':'trove.taskmanager.manager.Manager', 'use_nova_server_config_drive':'True', 'network_driver':'trove.network.neutron.NeutronDriver', 'network_label_regex':'.*'}
+
+    trove_guestagent_default = {'rabbit_host':MQ_NAME, 'rabbit_password':RABBIT_PASS, 'nova_proxy_admin_user':'admin', 'nova_proxy_admin_pass':ADMIN_PASS, 'nova_proxy_admin_tenant_name':'service','trove_auth_url':'http://'+KEYSTONE_NAME+':35357/v2.0'}
+
+
+    config = ConfigParser.ConfigParser()
+    os.system('cp /etc/trove/trove.conf /etc/trove/trove.conf.bak')
+    print "cp /etc/trove/trove.conf done!"
+    with open('/etc/trove/trove.conf', 'rw') as cfgfile:
+        config.readfp(cfgfile)
+        sections = config.sections()
+        for (k,v) in trove_all_default.iteritems():
+            config.set('DEFAULT', k, v)
+        if 'database' not in sections:
+            config.add_section('database')
+        config.set('database', 'connection', 'mysql+pymysql://trove:'+TROVE_DBPASS+'@'+DB_NAME+'/trove')
+        if 'oslo_messaging_rabbit' not in sections:
+            config.add_section('oslo_messaging_rabbit')
+        for (k,v) in trove_all_oslo_messaging_rabbit.iteritems():
+            config.set('oslo_messaging_rabbit', k, v)
+        for (k,v) in trove_default.iteritems():
+            config.set('DEFAULT', k, v)
+        if 'keystone_authtoken' not in sections:
+            config.add_section('keystone_authtoken')
+        for (k,v) in trove_keystone_authtoken.iteritems():
+            config.set('keystone_authtoken', k, v)
+        config.write(open('/etc/trove/trove.conf', 'w'))
+        #cfgfile.close()
+
+    config = ConfigParser.ConfigParser()
+    os.system('cp /etc/trove/trove-taskmanager.conf /etc/trove/trove-taskmanager.conf.bak')
+    print "cp /etc/trove/trove-taskmanager.conf done!"
+    with open('/etc/trove/trove-taskmanager.conf', 'rw') as cfgfile:
+        config.readfp(cfgfile)
+        sections = config.sections()
+        for (k,v) in trove_all_default.iteritems():
+            config.set('DEFAULT', k, v)
+        if 'database' not in sections:
+            config.add_section('database')
+        config.set('database', 'connection', 'mysql+pymysql://trove:'+TROVE_DBPASS+'@'+DB_NAME+'/trove')
+        if 'oslo_messaging_rabbit' not in sections:
+            config.add_section('oslo_messaging_rabbit')
+        for (k,v) in trove_all_oslo_messaging_rabbit.iteritems():
+            config.set('oslo_messaging_rabbit', k, v)
+        for (k,v) in trove_taskmanager_default.iteritems():
+            config.set('DEFAULT', k, v)
+        config.write(open('/etc/trove/trove-taskmanager.conf', 'w'))
+        #cfgfile.close()
+
+    config = ConfigParser.ConfigParser()
+    os.system('cp /etc/trove/trove-conductor.conf /etc/trove/trove-conductor.conf.bak')
+    print "cp /etc/trove/trove-conductor.conf done!"
+    with open('/etc/trove/trove-conductor.conf', 'rw') as cfgfile:
+        config.readfp(cfgfile)
+        sections = config.sections()
+        for (k,v) in trove_all_default.iteritems():
+            config.set('DEFAULT', k, v)
+        if 'database' not in sections:
+            config.add_section('database')
+        config.set('database', 'connection', 'mysql+pymysql://trove:'+TROVE_DBPASS+'@'+DB_NAME+'/trove')
+        if 'oslo_messaging_rabbit' not in sections:
+            config.add_section('oslo_messaging_rabbit')
+        for (k,v) in trove_all_oslo_messaging_rabbit.iteritems():
+            config.set('oslo_messaging_rabbit', k, v)
+        config.write(open('/etc/trove/trove-conductor.conf', 'w'))
+        #cfgfile.close()
+
+    config = ConfigParser.ConfigParser()
+    os.system('cp /etc/trove/trove-guestagent.conf /etc/trove/trove-guestagent.conf.bak')
+    print "cp /etc/trove/trove-guestagent.conf done!"
+    with open('/etc/trove/trove-guestagent.conf', 'rw') as cfgfile:
+        config.readfp(cfgfile)
+        sections = config.sections()
+        for (k,v) in trove_guestagent_default.iteritems():
+            config.set('DEFAULT', k, v)
+        config.write(open('/etc/trove/trove-guestagent.conf', 'w'))
+        #cfgfile.close()
+
+
+    os.system('su -s /bin/sh -c "trove-manage db_sync" trove')
+    os.system('service trove-api restart')
+    os.system('service trove-taskmanager restart')
+    os.system('service trove-conductor restart')
+    ##################################################################### 
+    # install Trove dashboard, use version 7.0.1 for newton
+    ##################################################################### 
+    os.system('sudo apt-get install python-pip -y')
+    #os.system('sudo apt-get install python-trove-dashboard -y')
+    os.system('pip install trove-dashboard==7.0.1')
+    os.system('cp -rf /usr/local/lib/python2.7/dist-packages/trove_dashboard/enabled/* /usr/share/openstack-dashboard/openstack_dashboard/local/enabled/')
+    os.system('service apache2 restart')
+
 
 
 
@@ -717,6 +1034,7 @@ def ubuntu_install(ipaddr, hostname, interface, network):
     ##################################################################### 
     # config network
     ##################################################################### 
+    os.system('hostname ' + hostname)
     os.system('cp /etc/hostname /etc/hostname.bak')
     print "cp /etc/hostname done!"
     os.system('echo '+hostname+' > /etc/hostname')
@@ -739,6 +1057,10 @@ def ubuntu_install(ipaddr, hostname, interface, network):
     ubuntu_neutron_install(ipaddr, hostname, interface, network)
     ubuntu_dashboard_install(hostname, network)
     ubuntu_cinder_install(ipaddr, hostname)
+    ubuntu_heat_install(hostname)
+    ubuntu_manila_install(ipaddr, hostname)
+    ubuntu_trove_install(hostname)
+    openstack_config(network)
 
 
 
@@ -797,6 +1119,10 @@ def centos_db_install(ipaddr, hostname):
     # NOTE: For CentOS, we should set root passwd and choose other option
     #       as "Y" here to make sure the MariaDB could be access
     ##################################################################### 
+    time.sleep(2)
+    tcflush(sys.stdin, TCIFLUSH)
+    print "Will set MariaDB. Please set a root passwd and choose 'Y' for all other options"
+    raw_input("Press enter to continue: ")
     os.system('mysql_secure_installation')
 
     ##################################################################### 
@@ -1173,7 +1499,9 @@ def centos_neutron_install(ipaddr, hostname, interface, network):
     else:
         print "Seems nova service not install on this host"
         print "Please edit /etc/nova/nova.conf on your nova service host for neutron"
-        raw_input("Press any key to continue: ")
+        time.sleep(2)
+        tcflush(sys.stdin, TCIFLUSH)
+        raw_input("Press enter to continue: ")
 
     os.system('ln -s /etc/neutron/plugins/ml2/ml2_conf.ini /etc/neutron/plugin.ini')
     os.system('su -s /bin/sh -c "neutron-db-manage --config-file /etc/neutron/neutron.conf --config-file /etc/neutron/plugins/ml2/ml2_conf.ini upgrade head" neutron')
@@ -1302,6 +1630,275 @@ def centos_cinder_install(ipaddr, hostname):
     os.system('systemctl enable openstack-cinder-api.service openstack-cinder-scheduler.service')
     os.system('systemctl start openstack-cinder-api.service openstack-cinder-scheduler.service')
 
+def centos_heat_install(hostname):
+    ##################################################################### 
+    # install & config Cinder
+    ##################################################################### 
+    global HEAT_NAME
+    HEAT_NAME = hostname
+    con = MySQLdb.connect(DB_NAME, 'root', MYSQL_PASS)
+    cursor = con.cursor()
+    cursor.execute('DROP DATABASE IF EXISTS heat;')
+    cursor.execute('CREATE DATABASE heat;')
+    cursor.execute('GRANT ALL PRIVILEGES ON heat.* TO \'heat\'@\'localhost\' IDENTIFIED BY \''+HEAT_DBPASS+'\';')
+    cursor.execute('GRANT ALL PRIVILEGES ON heat.* TO \'heat\'@\'%\' IDENTIFIED BY \''+HEAT_DBPASS+'\';')
+    cursor.close()
+
+    export_admin()
+    os.system('openstack user create --domain default --password '+HEAT_PASS+' heat')
+    os.system('openstack role add --project service --user heat admin')
+    os.system('openstack service create --name heat --description "Orchestration" orchestration')
+    os.system('openstack service create --name head-cfn --description "Orchestration" cloudformation')
+    os.system('openstack endpoint create --region RegionOne orchestration public http://'+HEAT_NAME+':8004/v1/%\(tenant_id\)s')
+    os.system('openstack endpoint create --region RegionOne orchestration internal http://'+HEAT_NAME+':8004/v1/%\(tenant_id\)s')
+    os.system('openstack endpoint create --region RegionOne orchestration admin http://'+HEAT_NAME+':8004/v1/%\(tenant_id\)s')
+    os.system('openstack endpoint create --region RegionOne cloudformation public http://'+HEAT_NAME+':8000/v1')
+    os.system('openstack endpoint create --region RegionOne cloudformation internal http://'+HEAT_NAME+':8000/v1')
+    os.system('openstack endpoint create --region RegionOne cloudformation admin http://'+HEAT_NAME+':8000/v1')
+
+    os.system('openstack domain create --description "Stack projects and users" heat')
+    os.system('openstack user create --domain heat --password '+HEAT_DOMAIN_PASS+' heat_domain_admin')
+    os.system('openstack role add --domain heat --user-domain heat --user heat_domain_admin admin')
+    os.system('openstack role create heat_stack_owner')
+    os.system('openstack role add --project demo --user demo heat_stack_owner')
+    os.system('openstack role create heat_stack_user')
+
+    os.system('yum install openstack-heat-api openstack-heat-api-cfn openstack-heat-engine -y')
+
+    heat_default = {'transport_url':'rabbit://openstack:'+RABBIT_PASS+'@'+MQ_NAME, 'heat_metadata_server_url':'http://'+HEAT_NAME+':8000', 'heat_waitcondition_server_url':'http://'+HEAT_NAME+':8000/v1/waitcondition', 'stack_domain_admin':'heat_domain_admin', 'stack_domain_admin_password':HEAT_DOMAIN_PASS, 'stack_user_domain_name':'heat'}
+
+    heat_keystone_authtoken = {'auth_uri':'http://'+KEYSTONE_NAME+':5000','auth_url':'http://'+KEYSTONE_NAME+':35357', 'memcached_servers':MEMCACHE_NAME+':11211', 'auth_type':'password', 'project_domain_name':'default', 'user_domain_name': 'default', 'project_name':'service', 'username':'heat', 'password':HEAT_PASS}
+
+    heat_trustee = {'auth_type':'password', 'auth_url':'http://'+KEYSTONE_NAME+':35357', 'username':'heat', 'password':HEAT_PASS, 'user_domain_name': 'default'}
+
+    config = ConfigParser.ConfigParser()
+    os.system('cp /etc/heat/heat.conf /etc/heat/heat.conf.bak')
+    print "cp /etc/heat/heat.conf done!"
+    with open('/etc/heat/heat.conf', 'rw') as cfgfile:
+        config.readfp(cfgfile)
+        sections = config.sections()
+        if 'database' not in sections:
+            config.add_section('database')
+        config.set('database', 'connection', 'mysql+pymysql://heat:'+HEAT_DBPASS+'@'+DB_NAME+'/heat')
+        for (k,v) in heat_default.iteritems():
+            config.set('DEFAULT', k, v)
+        if 'keystone_authtoken' not in sections:
+            config.add_section('keystone_authtoken')
+        for (k,v) in heat_keystone_authtoken.iteritems():
+            config.set('keystone_authtoken', k, v)
+        if 'trustee' not in sections:
+            config.add_section('trustee')
+        for (k,v) in heat_trustee.iteritems():
+            config.set('trustee', k, v)
+        if 'clients_keystone' not in sections:
+            config.add_section('clients_keystone')
+        config.set('clients_keystone', 'auth_uri', 'http://'+KEYSTONE_NAME+':35357')
+        if 'ec2authtoken' not in sections:
+            config.add_section('ec2authtoken')
+        config.set('ec2authtoken', 'auth_uri', 'http://'+KEYSTONE_NAME+':5000')
+        config.write(open('/etc/heat/heat.conf', 'w'))
+        #cfgfile.close()
+
+    os.system('su -s /bin/sh -c "heat-manage db_sync" heat')
+    os.system('systemctl enable openstack-heat-api.service openstack-heat-api-cfn.service openstack-heat-engine.service')
+    os.system('systemctl start openstack-heat-api.service openstack-heat-api-cfn.service openstack-heat-engine.service')
+
+
+
+def centos_manila_install(ipaddr, hostname):
+    ##################################################################### 
+    # install & config Manila
+    ##################################################################### 
+    global MANILA_NAME
+    MANILA_NAME = hostname
+    con = MySQLdb.connect(DB_NAME, 'root', MYSQL_PASS)
+    cursor = con.cursor()
+    cursor.execute('DROP DATABASE IF EXISTS manila;')
+    cursor.execute('CREATE DATABASE manila;')
+    cursor.execute('GRANT ALL PRIVILEGES ON manila.* TO \'manila\'@\'localhost\' IDENTIFIED BY \''+MANILA_DBPASS+'\';')
+    cursor.execute('GRANT ALL PRIVILEGES ON manila.* TO \'manila\'@\'%\' IDENTIFIED BY \''+MANILA_DBPASS+'\';')
+    cursor.close()
+
+    export_admin()
+    os.system('openstack user create --domain default --password '+MANILA_PASS+' manila')
+    os.system('openstack role add --project service --user manila admin')
+    os.system('openstack service create --name manila --description "OpenStack Shared File Systems" share')
+    os.system('openstack service create --name manilav2 --description "OpenStack Shared File Systems" sharev2')
+    os.system('openstack endpoint create --region RegionOne share public http://'+MANILA_NAME+':8786/v1/%\(tenant_id\)s')
+    os.system('openstack endpoint create --region RegionOne share internal http://'+MANILA_NAME+':8786/v1/%\(tenant_id\)s')
+    os.system('openstack endpoint create --region RegionOne share admin http://'+MANILA_NAME+':8786/v1/%\(tenant_id\)s')
+    os.system('openstack endpoint create --region RegionOne sharev2 public http://'+MANILA_NAME+':8786/v2/%\(tenant_id\)s')
+    os.system('openstack endpoint create --region RegionOne sharev2 internal http://'+MANILA_NAME+':8786/v2/%\(tenant_id\)s')
+    os.system('openstack endpoint create --region RegionOne sharev2 admin http://'+MANILA_NAME+':8786/v2/%\(tenant_id\)s')
+
+    os.system('yum install openstack-manila python-manilaclient openstack-manila-ui -y')
+
+    manila_default = {'transport_url':'rabbit://openstack:'+RABBIT_PASS+'@'+MQ_NAME, 'auth_strategy':'keystone', 'my_ip':ipaddr, 'default_share_type':'default_share_type', 'share_name_template':'share-%s', 'rootwrap_config':'/etc/manila/rootwrap.conf', 'api_paste_config':'/etc/manila/api-paste.ini'}
+
+    manila_keystone_authtoken = {'auth_uri':'http://'+KEYSTONE_NAME+':5000','auth_url':'http://'+KEYSTONE_NAME+':35357', 'memcached_servers':MEMCACHE_NAME+':11211', 'auth_type':'password', 'project_domain_id':'default', 'user_domain_id': 'default', 'project_name':'service', 'username':'manila', 'password':MANILA_PASS}
+
+    config = ConfigParser.ConfigParser()
+    os.system('cp /etc/manila/manila.conf /etc/manila/manila.conf.bak')
+    print "cp /etc/manila/manila.conf done!"
+    with open('/etc/manila/manila.conf', 'rw') as cfgfile:
+        config.readfp(cfgfile)
+        sections = config.sections()
+        if 'database' not in sections:
+            config.add_section('database')
+        config.set('database', 'connection', 'mysql+pymysql://manila:'+MANILA_DBPASS+'@'+DB_NAME+'/manila')
+        for (k,v) in manila_default.iteritems():
+            config.set('DEFAULT', k, v)
+        if 'keystone_authtoken' not in sections:
+            config.add_section('keystone_authtoken')
+        for (k,v) in manila_keystone_authtoken.iteritems():
+            config.set('keystone_authtoken', k, v)
+        if 'oslo_concurrency' not in sections:
+            config.add_section('oslo_concurrency')
+        config.set('oslo_concurrency', 'lock_path', '/var/lock/manila')
+        config.write(open('/etc/manila/manila.conf', 'w'))
+        #cfgfile.close()
+
+    os.system('su -s /bin/sh -c "manila-manage db sync" manila')
+    os.system('systemctl enable openstack-manila-api.service openstack-manila-scheduler.service')
+    os.system('systemctl start openstack-manila-api.service openstack-manila-scheduler.service')
+    os.system('systemctl restart httpd')
+    os.system('systemctl restart memcached')
+
+
+def centos_trove_install(hostname):
+    ##################################################################### 
+    # install & config Trove
+    ##################################################################### 
+    global TROVE_NAME
+    TROVE_NAME = hostname
+    con = MySQLdb.connect(DB_NAME, 'root', MYSQL_PASS)
+    cursor = con.cursor()
+    cursor.execute('DROP DATABASE IF EXISTS trove;')
+    cursor.execute('CREATE DATABASE trove;')
+    cursor.execute('GRANT ALL PRIVILEGES ON trove.* TO \'trove\'@\'localhost\' IDENTIFIED BY \''+TROVE_DBPASS+'\';')
+    cursor.execute('GRANT ALL PRIVILEGES ON trove.* TO \'trove\'@\'%\' IDENTIFIED BY \''+TROVE_DBPASS+'\';')
+    cursor.close()
+
+    export_admin()
+    os.system('openstack user create --domain default --password '+TROVE_PASS+' trove')
+    os.system('openstack role add --project service --user trove admin')
+    os.system('openstack service create --name trove --description "OpenStack Database" database')
+    os.system('openstack endpoint create --region RegionOne database public http://'+TROVE_NAME+':8779/v1.0/%\(tenant_id\)s')
+    os.system('openstack endpoint create --region RegionOne database internal http://'+TROVE_NAME+':8779/v1.0/%\(tenant_id\)s')
+    os.system('openstack endpoint create --region RegionOne database admin http://'+TROVE_NAME+':8779/v1.0/%\(tenant_id\)s')
+
+    os.system('yum install openstack-trove python-troveclient -y')
+
+
+    ##################################################################### 
+    # check and get /etc/trove/api-paste.ini
+    ##################################################################### 
+    if not os.path.exists('/etc/trove/api-paste.ini'):
+        os.system('sudo curl -o /etc/trove/api-paste.ini http://git.openstack.org/cgit/openstack/trove/plain/etc/trove/api-paste.ini?h=stable/newton')
+    ##################################################################### 
+    # check and get /etc/trove/trove-guestagent.conf
+    ##################################################################### 
+    if not os.path.exists('/etc/trove/trove-guestagent.conf'):
+        os.system('sudo curl -o /etc/trove/trove-guestagent.conf http://git.openstack.org/cgit/openstack/trove/plain/etc/trove/trove-guestagent.conf.sample?h=stable/newton')
+
+
+    trove_all_default = {'log_dir':'/var/log/trove', 'trove_auth_url':'http://'+KEYSTONE_NAME+':5000/v2.0', 'nova_compute_url':'http://'+NOVA_NAME+':8774/v2', 'cinder_url':'http://'+CINDER_NAME+':8776/v1', 'swift_url':'http://'+SWIFT_NAME+':8080/v1/AUTH_', 'notifier_queue_hostname':MQ_NAME, 'rpc_backend':'rabbit'}
+
+    trove_all_oslo_messaging_rabbit = {'rabbit_host':MQ_NAME, 'rabbit_userid':'openstack', 'rabbit_password':RABBIT_PASS}
+
+    trove_default = {'auth_strategy':'keystone', 'add_addresses':'True', 'network_label_regex':'^NETWORK_LABEL$', 'api_paste_config':'/etc/trove/api-paste.ini'}
+
+    trove_keystone_authtoken = {'auth_uri':'http://'+KEYSTONE_NAME+':5000','auth_url':'http://'+KEYSTONE_NAME+':35357', 'auth_type':'password', 'project_domain_name':'default', 'user_domain_name': 'default', 'project_name':'service', 'username':'trove', 'password':TROVE_PASS}
+
+    trove_taskmanager_default = {'nova_proxy_admin_user':'admin', 'nova_proxy_admin_pass':ADMIN_PASS, 'nova_proxy_admin_tenant_name':'service', 'taskmanager_manager':'trove.taskmanager.manager.Manager', 'use_nova_server_config_drive':'True', 'network_driver':'trove.network.neutron.NeutronDriver', 'network_label_regex':'.*'}
+
+    trove_guestagent_default = {'rabbit_host':MQ_NAME, 'rabbit_password':RABBIT_PASS, 'nova_proxy_admin_user':'admin', 'nova_proxy_admin_pass':ADMIN_PASS, 'nova_proxy_admin_tenant_name':'service','trove_auth_url':'http://'+KEYSTONE_NAME+':35357/v2.0'}
+
+
+    config = ConfigParser.ConfigParser()
+    os.system('cp /etc/trove/trove.conf /etc/trove/trove.conf.bak')
+    print "cp /etc/trove/trove.conf done!"
+    with open('/etc/trove/trove.conf', 'rw') as cfgfile:
+        config.readfp(cfgfile)
+        sections = config.sections()
+        for (k,v) in trove_all_default.iteritems():
+            config.set('DEFAULT', k, v)
+        if 'database' not in sections:
+            config.add_section('database')
+        config.set('database', 'connection', 'mysql+pymysql://trove:'+TROVE_DBPASS+'@'+DB_NAME+'/trove')
+        if 'oslo_messaging_rabbit' not in sections:
+            config.add_section('oslo_messaging_rabbit')
+        for (k,v) in trove_all_oslo_messaging_rabbit.iteritems():
+            config.set('oslo_messaging_rabbit', k, v)
+        for (k,v) in trove_default.iteritems():
+            config.set('DEFAULT', k, v)
+        if 'keystone_authtoken' not in sections:
+            config.add_section('keystone_authtoken')
+        for (k,v) in trove_keystone_authtoken.iteritems():
+            config.set('keystone_authtoken', k, v)
+        config.write(open('/etc/trove/trove.conf', 'w'))
+        #cfgfile.close()
+
+    config = ConfigParser.ConfigParser()
+    os.system('cp /etc/trove/trove-taskmanager.conf /etc/trove/trove-taskmanager.conf.bak')
+    print "cp /etc/trove/trove-taskmanager.conf done!"
+    with open('/etc/trove/trove-taskmanager.conf', 'rw') as cfgfile:
+        config.readfp(cfgfile)
+        sections = config.sections()
+        for (k,v) in trove_all_default.iteritems():
+            config.set('DEFAULT', k, v)
+        if 'database' not in sections:
+            config.add_section('database')
+        config.set('database', 'connection', 'mysql+pymysql://trove:'+TROVE_DBPASS+'@'+DB_NAME+'/trove')
+        if 'oslo_messaging_rabbit' not in sections:
+            config.add_section('oslo_messaging_rabbit')
+        for (k,v) in trove_all_oslo_messaging_rabbit.iteritems():
+            config.set('oslo_messaging_rabbit', k, v)
+        for (k,v) in trove_taskmanager_default.iteritems():
+            config.set('DEFAULT', k, v)
+        config.write(open('/etc/trove/trove-taskmanager.conf', 'w'))
+        #cfgfile.close()
+
+    config = ConfigParser.ConfigParser()
+    os.system('cp /etc/trove/trove-conductor.conf /etc/trove/trove-conductor.conf.bak')
+    print "cp /etc/trove/trove-conductor.conf done!"
+    with open('/etc/trove/trove-conductor.conf', 'rw') as cfgfile:
+        config.readfp(cfgfile)
+        sections = config.sections()
+        for (k,v) in trove_all_default.iteritems():
+            config.set('DEFAULT', k, v)
+        if 'database' not in sections:
+            config.add_section('database')
+        config.set('database', 'connection', 'mysql+pymysql://trove:'+TROVE_DBPASS+'@'+DB_NAME+'/trove')
+        if 'oslo_messaging_rabbit' not in sections:
+            config.add_section('oslo_messaging_rabbit')
+        for (k,v) in trove_all_oslo_messaging_rabbit.iteritems():
+            config.set('oslo_messaging_rabbit', k, v)
+        config.write(open('/etc/trove/trove-conductor.conf', 'w'))
+        #cfgfile.close()
+
+    config = ConfigParser.ConfigParser()
+    os.system('cp /etc/trove/trove-guestagent.conf /etc/trove/trove-guestagent.conf.bak')
+    print "cp /etc/trove/trove-guestagent.conf done!"
+    with open('/etc/trove/trove-guestagent.conf', 'rw') as cfgfile:
+        config.readfp(cfgfile)
+        sections = config.sections()
+        for (k,v) in trove_guestagent_default.iteritems():
+            config.set('DEFAULT', k, v)
+        config.write(open('/etc/trove/trove-guestagent.conf', 'w'))
+        #cfgfile.close()
+
+
+    os.system('su -s /bin/sh -c "trove-manage db_sync" trove')
+    os.system('systemctl enable openstack-trove-api.service openstack-trove-taskmanager.service openstack-trove-conductor.service')
+    os.system('systemctl start openstack-trove-api.service openstack-trove-taskmanager.service openstack-trove-conductor.service')
+    ##################################################################### 
+    # install Trove dashboard, use version 7.0.1 for newton
+    ##################################################################### 
+    os.system('yum install python-pip -y')
+    os.system('pip install trove-dashboard==7.0.1')
+    os.system('cp -rf /usr/lib/python2.7/site-packages/trove_dashboard/enabled/* /usr/share/openstack-dashboard/openstack_dashboard/local/enabled/')
+    os.system('systemctl restart httpd.service memcached.service')
 
 
 
@@ -1312,6 +1909,7 @@ def centos_install(ipaddr, hostname, interface, network):
     ##################################################################### 
     # config network
     ##################################################################### 
+    os.system('hostname ' + hostname)
     os.system('cp /etc/hostname /etc/hostname.bak')
     print "cp /etc/hostname done!"
     os.system('echo '+hostname+' > /etc/hostname')
@@ -1349,6 +1947,10 @@ def centos_install(ipaddr, hostname, interface, network):
     centos_neutron_install(ipaddr, hostname, interface, network)
     centos_dashboard_install(hostname, network)
     centos_cinder_install(ipaddr, hostname)
+    centos_heat_install(hostname)
+    centos_manila_install(ipaddr, hostname)
+    centos_trove_install(hostname)
+    openstack_config(network)
 
 
 
@@ -1356,9 +1958,8 @@ def centos_install(ipaddr, hostname, interface, network):
 
 def usage():
     print 'control_install.py [options]'
+    print 'now only support Ubuntu16.04 and CentOS7'
     print 'Options:'
-    print '-p, --platform=<Platform>     host OS platform (Ubuntu or CentOS)'
-    print '                              now only support Ubuntu16.04 and CentOS7'
     print '-n, --network=<NetworkType>   network type (Provider or Self-service)'
     print '-m, --hostname=<HostName>     host name'
     print '-i, --ipaddr=<IPAddress>      host IP address'
@@ -1375,7 +1976,7 @@ def main(argv):
     hostname = ''
     interface = ''
     try:
-        opts, args = getopt.getopt(argv,"hp:n:i:m:f:",["platform=","network=","ipaddr=","hostname=","interface="])
+        opts, args = getopt.getopt(argv,"hn:i:m:f:",["network=","ipaddr=","hostname=","interface="])
     except getopt.GetoptError:
         usage()
         sys.exit(2)
@@ -1383,8 +1984,6 @@ def main(argv):
         if opt == '-h':
            usage()
            sys.exit()
-        elif opt in ("-p", "--platform"):
-           platform = arg
         elif opt in ("-n", "--network"):
            network = arg
         elif opt in ("-i", "--ipaddr"):
@@ -1395,18 +1994,20 @@ def main(argv):
            interface = arg
 
     # check param integrity
-    if platform == '' or network == '' or ipaddr == '' or hostname == '' or interface == '':
+    if network == '' or ipaddr == '' or hostname == '' or interface == '':
         usage()
         sys.exit()
 
-    if platform == 'Ubuntu' or platform == 'ubuntu':
+    platform = get_distribution()
+
+    if platform == 'Ubuntu':
         ubuntu_install(ipaddr, hostname, interface, network)
-    elif platform == 'CentOS' or platform == 'centOS' or platform == 'centos':
+    elif platform == 'CentOS':
         centos_install(ipaddr, hostname, interface, network)
     else :
+        print 'Unsupported host platform!'
         usage()
 
-    openstack_config(network)
 
 
 
