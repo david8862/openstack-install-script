@@ -1570,6 +1570,7 @@ def centos_dashboard_install(hostname, network):
 #    os.system('sed -i "/WSGIProcessGroup horizon/a\WSGIApplicationGroup %{GLOBAL}" /etc/apache2/conf-available/openstack-dashboard.conf')
     centos_redirect_page(hostname)
 
+    os.system('iptables -I INPUT -p TCP --dport 80 -j ACCEPT')
     os.system('systemctl restart httpd.service memcached.service')
 
 
