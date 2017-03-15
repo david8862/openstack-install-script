@@ -1155,6 +1155,8 @@ def centos_memcache_install(hostname):
     global MEMCACHE_NAME
     MEMCACHE_NAME = hostname
     os.system('yum install memcached python-memcached -y')
+    # fix memcache launch failure
+    os.system('sed -i \'/OPTIONS/c OPTIONS= ""\' /etc/sysconfig/memcached')
     os.system('systemctl enable memcached.service')
     os.system('systemctl start memcached.service')
 
@@ -1935,6 +1937,12 @@ def centos_install(ipaddr, hostname, interface, network):
     os.system('echo net.ipv6.conf.default.disable_ipv6 = 1 >> /etc/sysctl.conf')
     os.system('echo net.ipv6.conf.lo.disable_ipv6 = 1 >> /etc/sysctl.conf')
     os.system('sysctl -p')
+
+    ##################################################################### 
+    # disable firewall
+    ##################################################################### 
+    os.system('systemctl stop firewalld.service')
+    os.system('systemctl disable firewalld.service')
 
     centos_ntp_install()
     centos_client_install()
