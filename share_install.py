@@ -404,6 +404,12 @@ def centos_install(volume, option, ipaddr, hostname):
     os.system('echo net.ipv6.conf.lo.disable_ipv6 = 1 >> /etc/sysctl.conf')
     os.system('sysctl -p')
 
+    ##################################################################### 
+    # disable firewall
+    ##################################################################### 
+    os.system('systemctl stop firewalld.service')
+    os.system('systemctl disable firewalld.service')
+
     create_env_script()
     centos_ntp_install()
     centos_client_install()
