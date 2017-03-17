@@ -48,12 +48,12 @@ fi
 if [ $PLATFORM == "Ubuntu" ] && [ $VERSION == "16.04" ]; then
     #echo "on Ubuntu platform"
     apt update && apt full-upgrade -y
-    apt install python python-mysqldb -y
+    apt install wget vim python python-mysqldb -y
     python control_install.py -n $NETWORK -m $HOSTNAME -i $IPADDR -f $INTERFACE
 elif [ $PLATFORM == "CentOS" ] && [ ${VERSION:0:2} == "7." ]; then
     #echo "on CentOS platform"
     yum upgrade -y
-    yum install python MySQL-python -y
+    yum install wget vim python MySQL-python -y
     python control_install.py -n $NETWORK -m $HOSTNAME -i $IPADDR -f $INTERFACE
 else
     echo "Unsupport host platform!"
