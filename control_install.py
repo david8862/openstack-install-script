@@ -168,6 +168,8 @@ def ubuntu_ntp_install():
     os.system('sudo cp /etc/chrony/chrony.conf /etc/chrony/chrony.conf.bak')
     os.system('sudo echo server ntp.ubuntu.com iburst >> /etc/chrony/chrony.conf')
     os.system('sudo echo allow 0/0 >> /etc/chrony/chrony.conf')
+    os.system('sudo echo generatecommandkey >> /etc/chrony/chrony.conf')
+    os.system('sudo echo makestep 10 3 >> /etc/chrony/chrony.conf')
     os.system('sudo service chrony restart')
 
 
@@ -1075,6 +1077,8 @@ def centos_ntp_install():
     os.system('cp /etc/chrony.conf /etc/chrony.conf.bak')
     os.system('echo server ntp.ubuntu.com iburst >> /etc/chrony.conf')
     os.system('echo allow 0/0 >> /etc/chrony.conf')
+    os.system('sudo echo generatecommandkey >> /etc/chrony.conf')
+    os.system('sudo echo makestep 10 3 >> /etc/chrony.conf')
     os.system('systemctl enable chronyd.service')
     os.system('systemctl start chronyd.service')
 
