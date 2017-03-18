@@ -155,12 +155,20 @@ def ubuntu_nova_install(ipaddr):
         config.write(open('/etc/nova/nova.conf', 'w'))
         #cfgfile.close()
 
-    output = os.popen("egrep -c '(vmx|svm)' /proc/cpuinfo")  
-    out = output.readlines()  
-    acc_value = int(out[0].strip())
-    print "The acc_value is " + str(acc_value)
+    #####################################################################
+    # here we don't follow the openstack official guide for the kvm
+    # support check. "egrep -c '(vmx|svm)' /proc/cpuinfo" could only
+    # reflect capability of CPU for HW accelerate, but not involving
+    # BIOS setup. So we choose to check /dev/kvm to make sure the support
+    # is fully enabled.
+    #####################################################################
+    #output = os.popen("egrep -c '(vmx|svm)' /proc/cpuinfo")  
+    #out = output.readlines()  
+    #acc_value = int(out[0].strip())
+    #print "The acc_value is " + str(acc_value)
 
-    if (acc_value < 1):
+    #if (acc_value < 1):
+    if not(os.path.exists('/dev/kvm')):
         config = ConfigParser.ConfigParser()
         os.system('cp /etc/nova/nova-compute.conf /etc/nova/nova-compute.conf.bak')
         with open('/etc/nova/nova-compute.conf', 'rw') as cfgfile:
@@ -335,12 +343,20 @@ def centos_nova_install(ipaddr):
         config.write(open('/etc/nova/nova.conf', 'w'))
         #cfgfile.close()
 
-    output = os.popen("egrep -c '(vmx|svm)' /proc/cpuinfo")  
-    out = output.readlines()  
-    acc_value = int(out[0].strip())
-    print "The acc_value is " + str(acc_value)
+    #####################################################################
+    # here we don't follow the openstack official guide for the kvm
+    # support check. "egrep -c '(vmx|svm)' /proc/cpuinfo" could only
+    # reflect capability of CPU for HW accelerate, but not involving
+    # BIOS setup. So we choose to check /dev/kvm to make sure the support
+    # is fully enabled.
+    #####################################################################
+    #output = os.popen("egrep -c '(vmx|svm)' /proc/cpuinfo")  
+    #out = output.readlines()  
+    #acc_value = int(out[0].strip())
+    #print "The acc_value is " + str(acc_value)
 
-    if (acc_value < 1):
+    #if (acc_value < 1):
+    if not(os.path.exists('/dev/kvm')):
         config = ConfigParser.ConfigParser()
         with open('/etc/nova/nova.conf', 'rw') as cfgfile:
             config.readfp(cfgfile)
