@@ -99,7 +99,7 @@ def ubuntu_ntp_install():
     ##################################################################### 
     os.system('sudo apt-get install chrony -y')
     os.system('sudo cp /etc/chrony/chrony.conf /etc/chrony/chrony.conf.bak')
-    os.system('sudo echo server '+NTP_NAME+' iburst > /etc/chrony/chrony.conf')
+    os.system('sudo echo server '+NTP_NAME+' iburst >> /etc/chrony/chrony.conf')
     os.system('sudo echo generatecommandkey >> /etc/chrony/chrony.conf')
     os.system('sudo echo makestep 10 3 >> /etc/chrony/chrony.conf')
     os.system('sudo service chrony restart')
@@ -287,7 +287,7 @@ def centos_ntp_install():
     ##################################################################### 
     os.system('yum install chrony -y')
     os.system('cp /etc/chrony.conf /etc/chrony.conf.bak')
-    os.system('echo server '+NTP_NAME+' iburst > /etc/chrony.conf')
+    os.system('echo server '+NTP_NAME+' iburst >> /etc/chrony.conf')
     os.system('sudo echo generatecommandkey >> /etc/chrony.conf')
     os.system('sudo echo makestep 10 3 >> /etc/chrony.conf')
     os.system('systemctl enable chronyd.service')
