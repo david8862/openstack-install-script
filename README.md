@@ -34,6 +34,6 @@ This project includes a set of automation scripts for following openstack servic
 * lvm/neutron linux bridge
 
 ## Config script
-"demo-template.yml" is a template file for heat service. And "config.sh" is a pre-config script when launching a new Ubuntu 16.04 or CentOS 7 VM from Openstack to enable the ssh password login and install some needed software.
+"demo-template.yml" is a template file for heat service. And "config.sh" is a pre-config script when launching a new Ubuntu 16.04 or CentOS 7 VM on Openstack to enable ssh password login and install some needed software.
 
 
