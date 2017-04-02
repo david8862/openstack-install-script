@@ -19,17 +19,17 @@ This project includes a set of automation scripts for following openstack servic
 * horizon(dashboard)
 
 ### 2. Compute Node
-* host environment (DNS, NTP, DB, etc.) setup
+* host environment (DNS, NTP, firewall) setup
 * nova-compute
 * neutron
 
 ### 3. Block Storage Node
-* host environment (DNS, NTP, DB, etc.) setup
+* host environment (DNS, NTP, firewall) setup
 * cinder volume
 * lvm
 
 ### 4. Manila Share Storage Node 
-* host environment (DNS, NTP, DB, etc.) setup
+* host environment (DNS, NTP, firewall) setup
 * manila share
 * lvm/neutron linux bridge
 
