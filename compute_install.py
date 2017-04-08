@@ -18,8 +18,8 @@
 # Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
 
-# This is an automation script for openstack Newton compute node installation
-# on Ubuntu 16.04 or CentOS 7 host
+# This is an automation script for openstack compute node installation
+# on Ubuntu 16.04 or CentOS 7 host. Now it support Newton and Ocata release
 
 # Python environment should be installed on your Ubuntu 16.04 host.
 # If not, please use "apt-get install python" or "yum install python" to do that.
@@ -32,6 +32,7 @@ ADMIN_PASS = 'cisco123'
 DEMO_PASS = 'cisco123'
 RABBIT_PASS = 'cisco123'
 NOVA_PASS = 'cisco123'
+PLACEMENT_PASS = 'cisco123'
 NEUTRON_PASS = 'cisco123'
 CONTROLLER = 'controller'
 CONTROLLER_IP = '10.74.130.52'
@@ -105,24 +106,32 @@ def ubuntu_ntp_install():
     os.system('sudo service chrony restart')
 
 
-def ubuntu_client_install():
+def ubuntu_client_install(release):
     ##################################################################### 
     # install & config Openstack client
     ##################################################################### 
     os.system('sudo apt-get install software-properties-common -y')
-    os.system('sudo add-apt-repository cloud-archive:newton -y')
-    os.system('sudo apt-get update & sudo apt-get dist-upgrade -y')
+    if release == 'Newton' or release == 'newton':
+        os.system('sudo add-apt-repository cloud-archive:newton -y')
+    elif release == 'Ocata' or release == 'ocata':
+        os.system('sudo add-apt-repository cloud-archive:ocata -y')
+    os.system('sudo apt-get update && sudo apt-get dist-upgrade -y')
     os.system('sudo apt-get install python-openstackclient -y')
-    os.system('sudo apt-get update & sudo apt-get dist-upgrade -y')
+    os.system('sudo apt-get update && sudo apt-get dist-upgrade -y')
 
 
-def ubuntu_nova_install(ipaddr):
+def ubuntu_nova_install(ipaddr, release):
     ##################################################################### 
     # install & config nova compute
     ##################################################################### 
     os.system('sudo apt-get install nova-compute -y')
 
-    default = {'transport_url':'rabbit://openstack:'+RABBIT_PASS+'@'+MQ_NAME, 'auth_strategy':'keystone', 'my_ip':ipaddr, 'use_neutron':'True', 'firewall_driver':'nova.virt.firewall.NoopFirewallDriver', 'vif_plugging_is_fatal':'False', 'vif_plugging_timeout':'0'}
+    if release == 'Ocata' or release == 'ocata':
+        default = {'transport_url':'rabbit://openstack:'+RABBIT_PASS+'@'+MQ_NAME, 'my_ip':ipaddr, 'use_neutron':'True', 'firewall_driver':'nova.virt.firewall.NoopFirewallDriver', 'vif_plugging_is_fatal':'False', 'vif_plugging_timeout':'0'}
+        placement = {'os_region_name':'RegionOne', 'auth_url':'http://'+KEYSTONE_NAME+':35357/v3', 'auth_type':'password', 'project_domain_name':'default', 'user_domain_name': 'default', 'project_name':'service', 'username':'placement', 'password':PLACEMENT_PASS}
+
+    elif release == 'Newton' or release == 'newton':
+        default = {'transport_url':'rabbit://openstack:'+RABBIT_PASS+'@'+MQ_NAME, 'auth_strategy':'keystone', 'my_ip':ipaddr, 'use_neutron':'True', 'firewall_driver':'nova.virt.firewall.NoopFirewallDriver', 'vif_plugging_is_fatal':'False', 'vif_plugging_timeout':'0'}
 
     nova_keystone_authtoken = {'auth_uri':'http://'+KEYSTONE_NAME+':5000','auth_url':'http://'+KEYSTONE_NAME+':35357', 'memcached_servers':MEMCACHE_NAME+':11211', 'auth_type':'password', 'project_domain_name':'default', 'user_domain_name': 'default', 'project_name':'service', 'username':'nova', 'password':NOVA_PASS}
 
@@ -137,6 +146,12 @@ def ubuntu_nova_install(ipaddr):
         for (k,v) in default.iteritems():
             config.set('DEFAULT', k, v)
         config.remove_option("DEFAULT","log-dir")
+
+        if release == 'Ocata' or release == 'ocata':
+            if 'api' not in sections:
+                config.add_section('api')
+            config.set('api', 'auth_strategy', 'keystone')
+
         if 'keystone_authtoken' not in sections:
             config.add_section('keystone_authtoken')
         for (k,v) in nova_keystone_authtoken.iteritems():
@@ -151,6 +166,12 @@ def ubuntu_nova_install(ipaddr):
         if 'oslo_concurrency' not in sections:
             config.add_section('oslo_concurrency')
         config.set('oslo_concurrency', 'lock_path', '/var/lib/nova/tmp')
+
+        if release == 'Ocata' or release == 'ocata':
+            if 'placement' not in sections:
+                config.add_section('placement')
+            for (k,v) in placement.iteritems():
+                config.set('placement', k, v)
 
         config.write(open('/etc/nova/nova.conf', 'w'))
         #cfgfile.close()
@@ -254,7 +275,7 @@ def ubuntu_neutron_install(ipaddr, interface, network):
 
 
 
-def ubuntu_install(ipaddr, hostname, interface, network):
+def ubuntu_install(ipaddr, hostname, interface, network, release):
     print "Start installation on Ubuntu host"
 
     ##################################################################### 
@@ -274,10 +295,9 @@ def ubuntu_install(ipaddr, hostname, interface, network):
 
     create_env_script()
     ubuntu_ntp_install()
-    ubuntu_client_install()
-    ubuntu_nova_install(ipaddr)
+    ubuntu_client_install(release)
+    ubuntu_nova_install(ipaddr, release)
     ubuntu_neutron_install(ipaddr, interface, network)
-
 
 
 
@@ -294,23 +314,32 @@ def centos_ntp_install():
     os.system('systemctl start chronyd.service')
 
 
-def centos_client_install():
+def centos_client_install(release):
     ##################################################################### 
     # install & config Openstack client
     ##################################################################### 
-    os.system('yum install centos-release-openstack-newton -y')
+    if release == 'Newton' or release == 'newton':
+        os.system('yum install centos-release-openstack-newton -y')
+    elif release == 'Ocata' or release == 'ocata':
+        os.system('yum install centos-release-openstack-ocata -y')
     os.system('yum upgrade -y')
     os.system('yum install python-openstackclient -y')
     os.system('yum install openstack-selinux -y')
     os.system('yum upgrade -y')
 
-def centos_nova_install(ipaddr):
+
+def centos_nova_install(ipaddr, release):
     ##################################################################### 
     # install & config nova compute
     ##################################################################### 
     os.system('yum install openstack-nova-compute -y')
 
-    default = {'enabled_apis':'osapi_compute,metadata', 'transport_url':'rabbit://openstack:'+RABBIT_PASS+'@'+MQ_NAME, 'auth_strategy':'keystone', 'my_ip':ipaddr, 'use_neutron':'True', 'firewall_driver':'nova.virt.firewall.NoopFirewallDriver'}
+    if release == 'Ocata' or release == 'ocata':
+        default = {'enabled_apis':'osapi_compute,metadata', 'transport_url':'rabbit://openstack:'+RABBIT_PASS+'@'+MQ_NAME, 'my_ip':ipaddr, 'use_neutron':'True', 'firewall_driver':'nova.virt.firewall.NoopFirewallDriver'}
+        placement = {'os_region_name':'RegionOne', 'auth_url':'http://'+KEYSTONE_NAME+':35357/v3', 'auth_type':'password', 'project_domain_name':'default', 'user_domain_name': 'default', 'project_name':'service', 'username':'placement', 'password':PLACEMENT_PASS}
+
+    elif release == 'Newton' or release == 'newton':
+        default = {'enabled_apis':'osapi_compute,metadata', 'transport_url':'rabbit://openstack:'+RABBIT_PASS+'@'+MQ_NAME, 'auth_strategy':'keystone', 'my_ip':ipaddr, 'use_neutron':'True', 'firewall_driver':'nova.virt.firewall.NoopFirewallDriver'}
 
     nova_keystone_authtoken = {'auth_uri':'http://'+KEYSTONE_NAME+':5000','auth_url':'http://'+KEYSTONE_NAME+':35357', 'memcached_servers':MEMCACHE_NAME+':11211', 'auth_type':'password', 'project_domain_name':'default', 'user_domain_name': 'default', 'project_name':'service', 'username':'nova', 'password':NOVA_PASS}
 
@@ -325,6 +354,12 @@ def centos_nova_install(ipaddr):
         for (k,v) in default.iteritems():
             config.set('DEFAULT', k, v)
         config.remove_option("DEFAULT","log-dir")
+
+        if release == 'Ocata' or release == 'ocata':
+            if 'api' not in sections:
+                config.add_section('api')
+            config.set('api', 'auth_strategy', 'keystone')
+
         if 'keystone_authtoken' not in sections:
             config.add_section('keystone_authtoken')
         for (k,v) in nova_keystone_authtoken.iteritems():
@@ -339,6 +374,12 @@ def centos_nova_install(ipaddr):
         if 'oslo_concurrency' not in sections:
             config.add_section('oslo_concurrency')
         config.set('oslo_concurrency', 'lock_path', '/var/lib/nova/tmp')
+
+        if release == 'Ocata' or release == 'ocata':
+            if 'placement' not in sections:
+                config.add_section('placement')
+            for (k,v) in placement.iteritems():
+                config.set('placement', k, v)
 
         config.write(open('/etc/nova/nova.conf', 'w'))
         #cfgfile.close()
@@ -446,7 +487,7 @@ def centos_neutron_install(ipaddr, interface, network):
 
 
 
-def centos_install(ipaddr, hostname, interface, network):
+def centos_install(ipaddr, hostname, interface, network, release):
     print "Start installation on CentOS host"
 
     ##################################################################### 
@@ -487,8 +528,8 @@ def centos_install(ipaddr, hostname, interface, network):
 
     create_env_script()
     centos_ntp_install()
-    centos_client_install()
-    centos_nova_install(ipaddr)
+    centos_client_install(release)
+    centos_nova_install(ipaddr, release)
     centos_neutron_install(ipaddr, interface, network)
 
 
@@ -498,6 +539,7 @@ def usage():
     print 'compute_install.py [options]'
     print 'now only support Ubuntu16.04 and CentOS7'
     print 'Options:'
+    print '-r, --release=<Release>       openstack release (Newton or Ocata)'
     print '-n, --network=<NetworkType>   network type (Provider or Self-service)'
     print '-m, --hostname=<HostName>     host name'
     print '-i, --ipaddr=<IPAddress>      host IP address'
@@ -509,12 +551,13 @@ def usage():
 
 def main(argv):
     platform = ''
+    release = ''
     network = ''
     ipaddr = ''
     hostname = ''
     interface = ''
     try:
-        opts, args = getopt.getopt(argv,"hn:i:m:f:",["network=","ipaddr=","hostname=","interface="])
+        opts, args = getopt.getopt(argv,"hr:n:i:m:f:",["release=","network=","ipaddr=","hostname=","interface="])
     except getopt.GetoptError:
         usage()
         sys.exit(2)
@@ -522,6 +565,8 @@ def main(argv):
         if opt == '-h':
            usage()
            sys.exit()
+        elif opt in ("-r", "--release"):
+           release = arg
         elif opt in ("-n", "--network"):
            network = arg
         elif opt in ("-i", "--ipaddr"):
@@ -532,16 +577,20 @@ def main(argv):
            interface = arg
 
     # check param integrity
-    if network == '' or ipaddr == '' or hostname == '' or interface == '':
+    if release == '' or network == '' or ipaddr == '' or hostname == '' or interface == '':
+        usage()
+        sys.exit()
+
+    if release != 'Newton' and release != 'Ocata':
         usage()
         sys.exit()
 
     platform = get_distribution()
 
     if platform == 'Ubuntu':
-        ubuntu_install(ipaddr, hostname, interface, network)
+        ubuntu_install(ipaddr, hostname, interface, network, release)
     elif platform == 'CentOS':
-        centos_install(ipaddr, hostname, interface, network)
+        centos_install(ipaddr, hostname, interface, network, release)
     else :
         print 'Unsupported host platform!'
         usage()

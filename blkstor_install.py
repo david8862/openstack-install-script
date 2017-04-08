@@ -18,8 +18,8 @@
 # Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
 
-# This is an automation script for openstack Newton block storage node installation
-# on Ubuntu 16.04 or CentOS 7 host
+# This is an automation script for openstack block storage node installation
+# on Ubuntu 16.04 or CentOS 7 host. Now it support Newton and Ocata release
 
 # Python environment should be installed on your Ubuntu 16.04 host.
 # If not, please use "apt-get install python" or "yum install python" to do that.
@@ -101,15 +101,18 @@ def ubuntu_ntp_install():
     os.system('sudo service chrony restart')
 
 
-def ubuntu_client_install():
+def ubuntu_client_install(release):
     ##################################################################### 
     # install & config Openstack client
     ##################################################################### 
     os.system('sudo apt-get install software-properties-common -y')
-    os.system('sudo add-apt-repository cloud-archive:newton -y')
-    os.system('sudo apt-get update & sudo apt-get dist-upgrade -y')
+    if release == 'Newton' or release == 'newton':
+        os.system('sudo add-apt-repository cloud-archive:newton -y')
+    elif release == 'Ocata' or release == 'ocata':
+        os.system('sudo add-apt-repository cloud-archive:ocata -y')
+    os.system('sudo apt-get update && sudo apt-get dist-upgrade -y')
     os.system('sudo apt-get install python-openstackclient -y')
-    os.system('sudo apt-get update & sudo apt-get dist-upgrade -y')
+    os.system('sudo apt-get update && sudo apt-get dist-upgrade -y')
 
 
 def ubuntu_cinder_install(volume, ipaddr):
@@ -193,7 +196,7 @@ def ubuntu_cinder_install(volume, ipaddr):
 
 
 
-def ubuntu_install(volume, ipaddr, hostname):
+def ubuntu_install(volume, ipaddr, hostname, release):
     print "Start installation on Ubuntu host"
 
     ##################################################################### 
@@ -213,7 +216,7 @@ def ubuntu_install(volume, ipaddr, hostname):
 
     create_env_script()
     ubuntu_ntp_install()
-    ubuntu_client_install()
+    ubuntu_client_install(release)
     ubuntu_cinder_install(volume, ipaddr)
 
 
@@ -232,11 +235,14 @@ def centos_ntp_install():
     os.system('systemctl start chronyd.service')
 
 
-def centos_client_install():
+def centos_client_install(release):
     ##################################################################### 
     # install & config Openstack client
     ##################################################################### 
-    os.system('yum install centos-release-openstack-newton -y')
+    if release == 'Newton' or release == 'newton':
+        os.system('yum install centos-release-openstack-newton -y')
+    elif release == 'Ocata' or release == 'ocata':
+        os.system('yum install centos-release-openstack-ocata -y')
     os.system('yum upgrade -y')
     os.system('yum install python-openstackclient -y')
     os.system('yum install openstack-selinux -y')
@@ -303,7 +309,7 @@ def centos_cinder_install(volume, ipaddr):
 
 
 
-def centos_install(volume, ipaddr, hostname):
+def centos_install(volume, ipaddr, hostname, release):
     print "Start installation on CentOS host"
 
     ##################################################################### 
@@ -344,7 +350,7 @@ def centos_install(volume, ipaddr, hostname):
 
     create_env_script()
     centos_ntp_install()
-    centos_client_install()
+    centos_client_install(release)
     centos_cinder_install(volume, ipaddr)
 
 
@@ -355,6 +361,7 @@ def usage():
     print 'blkstor_install.py [options]'
     print 'now only support Ubuntu16.04 and CentOS7'
     print 'Options:'
+    print '-r, --release=<Release>       openstack release (Newton or Ocata)'
     print '-v, --volume=<VolumeName>     Physical volume device name for cinder'
     print '                              service. e.g. sdb(not /dev/sdb!)'
     print '-m, --hostname=<HostName>     host name'
@@ -365,11 +372,12 @@ def usage():
 
 def main(argv):
     platform = ''
+    release = ''
     volume = ''
     ipaddr = ''
     hostname = ''
     try:
-        opts, args = getopt.getopt(argv,"hv:i:m:",["volume=","ipaddr=","hostname="])
+        opts, args = getopt.getopt(argv,"hr:v:i:m:",["release=","volume=","ipaddr=","hostname="])
     except getopt.GetoptError:
         usage()
         sys.exit(2)
@@ -377,6 +385,8 @@ def main(argv):
         if opt == '-h':
            usage()
            sys.exit()
+        elif opt in ("-r", "--release"):
+           release = arg
         elif opt in ("-v", "--volume"):
            volume = arg
         elif opt in ("-i", "--ipaddr"):
@@ -385,16 +395,20 @@ def main(argv):
            hostname = arg
 
     # check param integrity
-    if volume == '' or ipaddr == '' or hostname == '':
+    if release == '' or volume == '' or ipaddr == '' or hostname == '':
+        usage()
+        sys.exit()
+
+    if release != 'Newton' and release != 'Ocata':
         usage()
         sys.exit()
 
     platform = get_distribution()
 
     if platform == 'Ubuntu':
-        ubuntu_install(volume, ipaddr, hostname)
+        ubuntu_install(volume, ipaddr, hostname, release)
     elif platform == 'CentOS':
-        centos_install(volume, ipaddr, hostname)
+        centos_install(volume, ipaddr, hostname, release)
     else :
         print 'Unsupported host platform!'
         usage()
