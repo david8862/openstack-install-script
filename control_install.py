@@ -1473,10 +1473,19 @@ def centos_nova_install(ipaddr, hostname, release):
         #cfgfile.close()
 
     ##################################################################### 
-    # TODO: enable access to Placement API
+    # enable access to Placement API
     ##################################################################### 
-
-
+    if release == 'Ocata' or release == 'ocata':
+        os.system('echo >> /etc/httpd/conf.d/00-nova-placement-api.conf')
+        os.system('echo "<Directory /usr/bin>" >> /etc/httpd/conf.d/00-nova-placement-api.conf')
+        os.system('echo "   <IfVersion >= 2.4>" >> /etc/httpd/conf.d/00-nova-placement-api.conf')
+        os.system('echo "      Require all granted" >> /etc/httpd/conf.d/00-nova-placement-api.conf')
+        os.system('echo "   </IfVersion>" >> /etc/httpd/conf.d/00-nova-placement-api.conf')
+        os.system('echo "   <IfVersion < 2.4>" >> /etc/httpd/conf.d/00-nova-placement-api.conf')
+        os.system('echo "      Order allow,deny" >> /etc/httpd/conf.d/00-nova-placement-api.conf')
+        os.system('echo "      Allow from all" >> /etc/httpd/conf.d/00-nova-placement-api.conf')
+        os.system('echo "   </IfVersion>" >> /etc/httpd/conf.d/00-nova-placement-api.conf')
+        os.system('echo "</Directory>" >> /etc/httpd/conf.d/00-nova-placement-api.conf')
 
     os.system('su -s /bin/sh -c "nova-manage api_db sync" nova')
     if release == 'Ocata' or release == 'ocata':
