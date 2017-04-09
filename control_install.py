@@ -890,7 +890,7 @@ def ubuntu_heat_install(hostname):
     os.system('service heat-engine restart')
 
 
-def ubuntu_manila_install(ipaddr, hostname):
+def ubuntu_manila_install(ipaddr, hostname, release):
     ##################################################################### 
     # install & config Manila
     ##################################################################### 
@@ -920,8 +920,9 @@ def ubuntu_manila_install(ipaddr, hostname):
     # TODO: currently manila ui plugin python-manila-ui have problem on Ubuntu 16.04 newton release.
     #       may need to wait for a suitable SW package.
     ################################################################################################# 
-    #os.system('sudo apt-get install manila-api manila-scheduler python-manilaclient python-manila-ui -y')
     os.system('sudo apt-get install manila-api manila-scheduler python-manilaclient -y')
+    if release == 'Ocata' or release == 'ocata':
+        os.system('sudo apt-get install python-manila-ui -y')
 
     manila_default = {'transport_url':'rabbit://openstack:'+RABBIT_PASS+'@'+MQ_NAME, 'auth_strategy':'keystone', 'my_ip':ipaddr, 'default_share_type':'default_share_type', 'share_name_template':'share-%s', 'rootwrap_config':'/etc/manila/rootwrap.conf', 'api_paste_config':'/etc/manila/api-paste.ini'}
 
@@ -951,8 +952,9 @@ def ubuntu_manila_install(ipaddr, hostname):
     os.system('su -s /bin/sh -c "manila-manage db sync" manila')
     os.system('service manila-scheduler restart')
     os.system('service manila-api restart')
-    #os.system('service apache2 restart')
-    #os.system('service memcached restart')
+    if release == 'Ocata' or release == 'ocata':
+        os.system('service apache2 restart')
+        os.system('service memcached restart')
     os.system('rm -rf /var/lib/manila/manila.sqlite')
 
 
@@ -1126,7 +1128,7 @@ def ubuntu_install(ipaddr, hostname, interface, network, release):
     ubuntu_dashboard_install(hostname, network, release)
     ubuntu_cinder_install(ipaddr, hostname)
     ubuntu_heat_install(hostname)
-    ubuntu_manila_install(ipaddr, hostname)
+    ubuntu_manila_install(ipaddr, hostname, release)
     ubuntu_trove_install(hostname)
     openstack_config(network)
 
