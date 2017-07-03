@@ -721,7 +721,12 @@ def ubuntu_dashboard_install(hostname, network, release):
     os.system('sed -i "/CACHES = {/i\SESSION_ENGINE = \'django.contrib.sessions.backends.cache\'" /etc/openstack-dashboard/local_settings.py')
 #    os.system('sed -i "/11211/c \'LOCATION\': \''+hostname+':11211\'," /etc/openstack-dashboard/local_settings.py')
 
-    os.system('sed -i \'/OPENSTACK_KEYSTONE_MULTIDOMAIN_SUPPORT/c OPENSTACK_KEYSTONE_MULTIDOMAIN_SUPPORT = True\' /etc/openstack-dashboard/local_settings.py')
+    ##################################################################### 
+    # here we disable the multidomain support so that user doesn't
+    # need to input domain on login. It can be enabled when needed
+    ##################################################################### 
+    os.system('sed -i \'/OPENSTACK_KEYSTONE_MULTIDOMAIN_SUPPORT/c OPENSTACK_KEYSTONE_MULTIDOMAIN_SUPPORT = False\' /etc/openstack-dashboard/local_settings.py')
+
     os.system('sed -i \'/OPENSTACK_KEYSTONE_DEFAULT_DOMAIN =/c OPENSTACK_KEYSTONE_DEFAULT_DOMAIN = "default"\' /etc/openstack-dashboard/local_settings.py')
     os.system('sed -i \'/OPENSTACK_KEYSTONE_DEFAULT_ROLE/c OPENSTACK_KEYSTONE_DEFAULT_ROLE = "user"\' /etc/openstack-dashboard/local_settings.py')
 
@@ -1691,7 +1696,12 @@ def centos_dashboard_install(hostname, network):
     os.system('sed -i "/CACHES = {/i\SESSION_ENGINE = \'django.contrib.sessions.backends.cache\'" /etc/openstack-dashboard/local_settings')
 #    os.system('sed -i "/11211/c \'LOCATION\': \''+hostname+':11211\'," /etc/openstack-dashboard/local_settings')
 
-    os.system('sed -i \'/OPENSTACK_KEYSTONE_MULTIDOMAIN_SUPPORT/c OPENSTACK_KEYSTONE_MULTIDOMAIN_SUPPORT = True\' /etc/openstack-dashboard/local_settings')
+    ##################################################################### 
+    # here we disable the multidomain support so that user doesn't
+    # need to input domain on login. It can be enabled when needed
+    ##################################################################### 
+    os.system('sed -i \'/OPENSTACK_KEYSTONE_MULTIDOMAIN_SUPPORT/c OPENSTACK_KEYSTONE_MULTIDOMAIN_SUPPORT = False\' /etc/openstack-dashboard/local_settings')
+
     os.system('sed -i \'/OPENSTACK_KEYSTONE_DEFAULT_DOMAIN =/c OPENSTACK_KEYSTONE_DEFAULT_DOMAIN = "default"\' /etc/openstack-dashboard/local_settings')
     os.system('sed -i \'/OPENSTACK_KEYSTONE_DEFAULT_ROLE/c OPENSTACK_KEYSTONE_DEFAULT_ROLE = "user"\' /etc/openstack-dashboard/local_settings')
 
@@ -2078,6 +2088,11 @@ def centos_install(ipaddr, hostname, interface, network, release):
     os.system('sed -i \'/127.0.0.1/c 127.0.0.1  localhost '+hostname+' \' /etc/hosts')
     os.system('sed -i \'/127.0.1.1/d\' /etc/hosts')
     os.system('echo '+ipaddr+'  '+hostname+' >> /etc/hosts')
+
+    ##################################################################### 
+    # disable IP assignment on public network interface
+    ##################################################################### 
+    os.system('sed -i \'/BOOTPROTO=/c BOOTPROTO="none"\' /etc/sysconfig/network-scripts/ifcfg-'+interface )
 
     ##################################################################### 
     # disable IPv6

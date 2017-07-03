@@ -189,16 +189,18 @@ def ubuntu_nova_install(ipaddr, release):
     #print "The acc_value is " + str(acc_value)
 
     #if (acc_value < 1):
-    if not(os.path.exists('/dev/kvm')):
-        config = ConfigParser.ConfigParser()
-        os.system('cp /etc/nova/nova-compute.conf /etc/nova/nova-compute.conf.bak')
-        with open('/etc/nova/nova-compute.conf', 'rw') as cfgfile:
-            config.readfp(cfgfile)
-            sections = config.sections()
-            if 'libvirt' not in sections:
-                config.add_section('libvirt')
+    config = ConfigParser.ConfigParser()
+    os.system('cp /etc/nova/nova-compute.conf /etc/nova/nova-compute.conf.bak')
+    with open('/etc/nova/nova-compute.conf', 'rw') as cfgfile:
+        config.readfp(cfgfile)
+        sections = config.sections()
+        if 'libvirt' not in sections:
+            config.add_section('libvirt')
+        if (os.path.exists('/dev/kvm')):
+            config.set('libvirt', 'virt_type', 'kvm')
+        else:
             config.set('libvirt', 'virt_type', 'qemu')
-            config.write(open('/etc/nova/nova-compute.conf', 'w'))
+        config.write(open('/etc/nova/nova-compute.conf', 'w'))
 
     os.system('service nova-compute restart')
 
@@ -397,15 +399,17 @@ def centos_nova_install(ipaddr, release):
     #print "The acc_value is " + str(acc_value)
 
     #if (acc_value < 1):
-    if not(os.path.exists('/dev/kvm')):
-        config = ConfigParser.ConfigParser()
-        with open('/etc/nova/nova.conf', 'rw') as cfgfile:
-            config.readfp(cfgfile)
-            sections = config.sections()
-            if 'libvirt' not in sections:
-                config.add_section('libvirt')
+    config = ConfigParser.ConfigParser()
+    with open('/etc/nova/nova.conf', 'rw') as cfgfile:
+        config.readfp(cfgfile)
+        sections = config.sections()
+        if 'libvirt' not in sections:
+            config.add_section('libvirt')
+        if (os.path.exists('/dev/kvm')):
+            config.set('libvirt', 'virt_type', 'kvm')
+        else:
             config.set('libvirt', 'virt_type', 'qemu')
-            config.write(open('/etc/nova/nova.conf', 'w'))
+        config.write(open('/etc/nova/nova.conf', 'w'))
 
     os.system('systemctl enable libvirtd.service openstack-nova-compute.service')
     os.system('systemctl start libvirtd.service openstack-nova-compute.service')
@@ -509,6 +513,11 @@ def centos_install(ipaddr, hostname, interface, network, release):
     os.system('sed -i \'/127.0.1.1/d\' /etc/hosts')
     os.system('echo '+CONTROLLER_IP+'  '+CONTROLLER+' >> /etc/hosts')
     os.system('echo '+ipaddr+'  '+hostname+' >> /etc/hosts')
+
+    ##################################################################### 
+    # disable IP assignment on public network interface
+    ##################################################################### 
+    os.system('sed -i \'/BOOTPROTO=/c BOOTPROTO="none"\' /etc/sysconfig/network-scripts/ifcfg-'+interface )
 
     ##################################################################### 
     # disable IPv6
