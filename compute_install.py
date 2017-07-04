@@ -515,9 +515,10 @@ def centos_install(ipaddr, hostname, interface, network, release):
     os.system('echo '+ipaddr+'  '+hostname+' >> /etc/hosts')
 
     ##################################################################### 
-    # disable IP assignment on public network interface
+    # For Self-service network, disable IP assignment on public network interface
     ##################################################################### 
-    os.system('sed -i \'/BOOTPROTO=/c BOOTPROTO="none"\' /etc/sysconfig/network-scripts/ifcfg-'+interface )
+    if network == 'Self-service' or network == 'self-service':
+        os.system('sed -i \'/BOOTPROTO=/c BOOTPROTO="none"\' /etc/sysconfig/network-scripts/ifcfg-'+interface )
 
     ##################################################################### 
     # disable IPv6
