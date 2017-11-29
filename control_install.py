@@ -1,7 +1,7 @@
 #!/usr/bin/python
 # Filename: control_install.py
 #
-# Copyright (C) 2016  Xiaobin Zhang (david8862@gmail.com)
+# Copyright (C) 2016, 2017  Xiaobin Zhang (david8862@gmail.com)
 #
 # This library is free software; you can redistribute it and/or
 # modify it under the terms of the GNU Lesser General Public
@@ -19,7 +19,7 @@
 
 
 # This is an automation script for openstack controller node installation
-# on Ubuntu 16.04 or CentOS 7 host. Now it support Newton and Ocata release
+# on Ubuntu 16.04 or CentOS 7 host. Now it support Newton/Ocata/Pike release
 
 # Python environment and MySQLdb package should be installed on your Ubuntu 16.04
 # or CentOS 7 host. If not, please use "apt-get install python python-mysqldb"
@@ -67,6 +67,7 @@ MANILA_NAME = 'controller'
 TROVE_NAME = 'controller'
 SWIFT_NAME = 'controller'
 
+ETCD_VER = 'v3.2.7'
 
 
 def export_admin():
@@ -183,6 +184,8 @@ def ubuntu_client_install(release):
         os.system('sudo add-apt-repository cloud-archive:newton -y')
     elif release == 'Ocata' or release == 'ocata':
         os.system('sudo add-apt-repository cloud-archive:ocata -y')
+    elif release == 'Pike' or release == 'pike':
+        os.system('sudo add-apt-repository cloud-archive:pike -y')
     os.system('sudo apt-get update && sudo apt-get dist-upgrade -y')
     os.system('sudo apt-get install python-openstackclient -y')
     os.system('sudo apt-get update && sudo apt-get dist-upgrade -y')
@@ -254,6 +257,62 @@ def ubuntu_memcache_install(hostname):
     os.system('sudo apt-get install memcached python-memcache -y')
     os.system('service memcached restart')
 
+def create_etcd_config_file(ipaddr, hostname):
+    # create etcd related config file
+    etcd_conf_yml = open('/etc/etcd/etcd.conf.yml', 'w+')
+    etcd_conf_yml.write('name: '+hostname+'\n')
+    etcd_conf_yml.write('data-dir: /var/lib/etcd\n')
+    etcd_conf_yml.write("initial-cluster-state: 'new'\n")
+    etcd_conf_yml.write("initial-cluster-token: 'etcd-cluster-01'\n")
+    etcd_conf_yml.write('initial-cluster: '+hostname+'=http://'+ipaddr+':2380\n')
+    etcd_conf_yml.write('initial-advertise-peer-urls: http://'+ipaddr+':2380\n')
+    etcd_conf_yml.write('advertise-client-urls: http://'+ipaddr+':2379\n')
+    etcd_conf_yml.write('listen-peer-urls: http://0.0.0.0:2380\n')
+    etcd_conf_yml.write('listen-client-urls: http://'+ipaddr+':2379\n')
+    etcd_conf_yml.close()
+
+    etcd_service = {'LimitNOFILE':'65536','Restart':'on-failure','Type':'notify','ExecStart':'/usr/bin/etcd --config-file /etc/etcd/etcd.conf.yml','User':'etcd'}
+
+    config = ConfigParser.ConfigParser()
+    config.optionxform = str
+    with open('/lib/systemd/system/etcd.service', 'w+') as cfgfile:
+        config.readfp(cfgfile)
+        sections = config.sections()
+        if 'Unit' not in sections:
+            config.add_section('Unit')
+        config.set('Unit', 'After', 'network.target')
+        config.set('Unit', 'Description', 'etcd - highly-available key value store')
+        if 'Service' not in sections:
+            config.add_section('Service')
+        for (k,v) in etcd_service.iteritems():
+            config.set('Service', k, v)
+        if 'Install' not in sections:
+            config.add_section('Install')
+        config.set('Install', 'WantedBy', 'multi-user.target')
+        config.write(open('/lib/systemd/system/etcd.service', 'w'))
+        cfgfile.close()
+
+def ubuntu_etcd_install(ipaddr, hostname):
+    ##################################################################### 
+    # install & config etcd
+    ##################################################################### 
+    os.system('groupadd --system etcd')
+    os.system('useradd --home-dir "/var/lib/etcd" --system --shell /bin/false -g etcd etcd')
+    os.system('mkdir -p /etc/etcd')
+    os.system('chown etcd:etcd /etc/etcd')
+    os.system('mkdir -p /var/lib/etcd')
+    os.system('chown etcd:etcd /var/lib/etcd')
+    os.system('rm -rf /tmp/etcd && mkdir -p /tmp/etcd')
+    os.system('curl -L https://github.com/coreos/etcd/releases/download/'+ETCD_VER+'/etcd-'+ETCD_VER+'-linux-amd64.tar.gz -o /tmp/etcd-'+ETCD_VER+'-linux-amd64.tar.gz')
+    os.system('tar xzvf /tmp/etcd-'+ETCD_VER+'-linux-amd64.tar.gz -C /tmp/etcd --strip-components=1')
+    os.system('cp /tmp/etcd/etcd /usr/bin/etcd')
+    os.system('cp /tmp/etcd/etcdctl /usr/bin/etcdctl')
+    create_etcd_config_file(ipaddr, hostname)
+    os.system('systemctl enable etcd')
+    os.system('systemctl start etcd')
+
+
+
 
 def ubuntu_keystone_install(hostname, release):
     ##################################################################### 
@@ -269,7 +328,7 @@ def ubuntu_keystone_install(hostname, release):
     cursor.execute('GRANT ALL PRIVILEGES ON keystone.* TO \'keystone\'@\'%\' IDENTIFIED BY \''+KEYSTONE_DBPASS+'\';')
     cursor.close()
 
-    os.system('sudo apt-get install keystone -y')
+    os.system('sudo apt-get install keystone apache2 libapache2-mod-wsgi -y')
     config = ConfigParser.ConfigParser()
     os.system('cp /etc/keystone/keystone.conf /etc/keystone/keystone.conf.bak')
     print "cp /etc/keystone/keystone.conf done!"
@@ -290,7 +349,7 @@ def ubuntu_keystone_install(hostname, release):
     os.system('keystone-manage credential_setup --keystone-user keystone --keystone-group keystone')
     if release == 'Newton' or release == 'newton':
         os.system('keystone-manage bootstrap --bootstrap-password '+ADMIN_PASS+' --bootstrap-admin-url http://'+KEYSTONE_NAME+':35357/v3/ --bootstrap-internal-url http://'+KEYSTONE_NAME+':35357/v3/ --bootstrap-public-url http://'+KEYSTONE_NAME+':5000/v3/ --bootstrap-region-id RegionOne')
-    elif release == 'Ocata' or release == 'ocata':
+    elif release == 'Ocata' or release == 'ocata' or release == 'Pike' or release == 'pike':
         os.system('keystone-manage bootstrap --bootstrap-password '+ADMIN_PASS+' --bootstrap-admin-url http://'+KEYSTONE_NAME+':35357/v3/ --bootstrap-internal-url http://'+KEYSTONE_NAME+':5000/v3/ --bootstrap-public-url http://'+KEYSTONE_NAME+':5000/v3/ --bootstrap-region-id RegionOne')
 
     os.system('echo ServerName '+KEYSTONE_NAME+' >> /etc/apache2/apache2.conf')
@@ -408,7 +467,7 @@ def ubuntu_nova_install(ipaddr, hostname, release):
     cursor.execute('GRANT ALL PRIVILEGES ON nova_api.* TO \'nova\'@\'%\' IDENTIFIED BY \''+NOVA_DBPASS+'\';')
     cursor.execute('GRANT ALL PRIVILEGES ON nova.* TO \'nova\'@\'localhost\' IDENTIFIED BY \''+NOVA_DBPASS+'\';')
     cursor.execute('GRANT ALL PRIVILEGES ON nova.* TO \'nova\'@\'%\' IDENTIFIED BY \''+NOVA_DBPASS+'\';')
-    if release == 'Ocata' or release == 'ocata':
+    if release == 'Ocata' or release == 'ocata' or release == 'Pike' or release == 'pike':
         cursor.execute('DROP DATABASE IF EXISTS nova_cell0;')
         cursor.execute('CREATE DATABASE nova_cell0;')
         cursor.execute('GRANT ALL PRIVILEGES ON nova_cell0.* TO \'nova\'@\'localhost\' IDENTIFIED BY \''+NOVA_DBPASS+'\';')
@@ -426,7 +485,7 @@ def ubuntu_nova_install(ipaddr, hostname, release):
 
         os.system('sudo apt-get install nova-api nova-conductor nova-consoleauth nova-novncproxy nova-scheduler -y')
 
-    elif release == 'Ocata' or release == 'ocata':
+    elif release == 'Ocata' or release == 'ocata' or release == 'Pike' or release == 'pike':
         os.system('openstack endpoint create --region RegionOne compute public http://'+NOVA_NAME+':8774/v2.1')
         os.system('openstack endpoint create --region RegionOne compute internal http://'+NOVA_NAME+':8774/v2.1')
         os.system('openstack endpoint create --region RegionOne compute admin http://'+NOVA_NAME+':8774/v2.1')
@@ -440,14 +499,14 @@ def ubuntu_nova_install(ipaddr, hostname, release):
         os.system('sudo apt-get install nova-api nova-conductor nova-consoleauth nova-novncproxy nova-scheduler nova-placement-api -y')
 
 
-    if release == 'Ocata' or release == 'ocata':
+    if release == 'Ocata' or release == 'ocata' or release == 'Pike' or release == 'pike':
         default = {'transport_url':'rabbit://openstack:'+RABBIT_PASS+'@'+MQ_NAME, 'my_ip':ipaddr, 'use_neutron':'True', 'firewall_driver':'nova.virt.firewall.NoopFirewallDriver', 'vif_plugging_is_fatal':'False', 'vif_plugging_timeout':'0'}
     elif release == 'Newton' or release == 'newton':
         default = {'transport_url':'rabbit://openstack:'+RABBIT_PASS+'@'+MQ_NAME, 'auth_strategy':'keystone', 'my_ip':ipaddr, 'use_neutron':'True', 'firewall_driver':'nova.virt.firewall.NoopFirewallDriver', 'vif_plugging_is_fatal':'False', 'vif_plugging_timeout':'0'}
 
     nova_keystone_authtoken = {'auth_uri':'http://'+KEYSTONE_NAME+':5000','auth_url':'http://'+KEYSTONE_NAME+':35357', 'memcached_servers':MEMCACHE_NAME+':11211', 'auth_type':'password', 'project_domain_name':'default', 'user_domain_name': 'default', 'project_name':'service', 'username':'nova', 'password':NOVA_PASS}
 
-    if release == 'Ocata' or release == 'ocata':
+    if release == 'Ocata' or release == 'ocata' or release == 'Pike' or release == 'pike':
         placement = {'os_region_name':'RegionOne', 'auth_url':'http://'+KEYSTONE_NAME+':35357/v3', 'auth_type':'password', 'project_domain_name':'default', 'user_domain_name': 'default', 'project_name':'service', 'username':'placement', 'password':PLACEMENT_PASS}
 
 
@@ -464,7 +523,7 @@ def ubuntu_nova_install(ipaddr, hostname, release):
             config.add_section('database')
         config.set('database', 'connection', 'mysql+pymysql://nova:'+NOVA_DBPASS+'@'+DB_NAME+'/nova')
 
-        if release == 'Ocata' or release == 'ocata':
+        if release == 'Ocata' or release == 'ocata' or release == 'Pike' or release == 'pike':
             if 'api' not in sections:
                 config.add_section('api')
             config.set('api', 'auth_strategy', 'keystone')
@@ -478,7 +537,7 @@ def ubuntu_nova_install(ipaddr, hostname, release):
             config.set('keystone_authtoken', k, v)
         if 'vnc' not in sections:
             config.add_section('vnc')
-        if release == 'Ocata' or release == 'ocata':
+        if release == 'Ocata' or release == 'ocata' or release == 'Pike' or release == 'pike':
             config.set('vnc', 'enabled', 'true')
         config.set('vnc', 'vncserver_listen', '$my_ip')
         config.set('vnc', 'vncserver_proxyclient_address', '$my_ip')
@@ -489,7 +548,7 @@ def ubuntu_nova_install(ipaddr, hostname, release):
             config.add_section('oslo_concurrency')
         config.set('oslo_concurrency', 'lock_path', '/var/lib/nova/tmp')
 
-        if release == 'Ocata' or release == 'ocata':
+        if release == 'Ocata' or release == 'ocata' or release == 'Pike' or release == 'pike':
             if 'placement' not in sections:
                 config.add_section('placement')
             for (k,v) in placement.iteritems():
@@ -502,11 +561,11 @@ def ubuntu_nova_install(ipaddr, hostname, release):
         #cfgfile.close()
 
     os.system('su -s /bin/sh -c "nova-manage api_db sync" nova')
-    if release == 'Ocata' or release == 'ocata':
+    if release == 'Ocata' or release == 'ocata' or release == 'Pike' or release == 'pike':
         os.system('su -s /bin/sh -c "nova-manage cell_v2 map_cell0" nova')
         os.system('su -s /bin/sh -c "nova-manage cell_v2 create_cell --name=cell1 --verbose" nova')
     os.system('su -s /bin/sh -c "nova-manage db sync" nova')
-    if release == 'Ocata' or release == 'ocata':
+    if release == 'Ocata' or release == 'ocata' or release == 'Pike' or release == 'pike':
         os.system('nova-manage cell_v2 list_cells')
     os.system('service nova-api restart')
     os.system('service nova-consoleauth restart')
@@ -553,7 +612,7 @@ def ubuntu_neutron_install(ipaddr, hostname, interface, network, release):
         with open('/etc/neutron/l3_agent.ini', 'rw') as cfgfile:
             config.readfp(cfgfile)
             sections = config.sections()
-            if release == 'Ocata' or release == 'ocata':
+            if release == 'Ocata' or release == 'ocata' or release == 'Pike' or release == 'pike':
                 config.set('DEFAULT', 'interface_driver', 'linuxbridge')
             elif release == 'Newton' or release == 'newton':
                 config.set('DEFAULT', 'interface_driver', 'neutron.agent.linux.interface.BridgeInterfaceDriver')
@@ -644,7 +703,7 @@ def ubuntu_neutron_install(ipaddr, hostname, interface, network, release):
     with open('/etc/neutron/dhcp_agent.ini', 'rw') as cfgfile:
         config.readfp(cfgfile)
         sections = config.sections()
-        if release == 'Ocata' or release == 'ocata':
+        if release == 'Ocata' or release == 'ocata' or release == 'Pike' or release == 'pike':
             config.set('DEFAULT', 'interface_driver', 'linuxbridge')
         elif release == 'Newton' or release == 'newton':
             config.set('DEFAULT', 'interface_driver', 'neutron.agent.linux.interface.BridgeInterfaceDriver')
@@ -711,7 +770,7 @@ def ubuntu_dashboard_install(hostname, network, release):
     # install & config dashboard
     ##################################################################### 
     os.system('sudo apt-get install openstack-dashboard -y')
-    if release == 'Ocata' or release == 'ocata':
+    if release == 'Ocata' or release == 'ocata' or release == 'Pike' or release == 'pike':
         os.system('sed -i "/#ALLOWED_HOSTS/c ALLOWED_HOSTS = [\'*\', ]" /etc/openstack-dashboard/local_settings.py')
         os.system('sed -i "/SECRET_KEY =/c SECRET_KEY = \'cisco123\'" /etc/openstack-dashboard/local_settings.py')
 
@@ -763,7 +822,7 @@ def ubuntu_dashboard_install(hostname, network, release):
 
 
 
-def ubuntu_cinder_install(ipaddr, hostname):
+def ubuntu_cinder_install(ipaddr, hostname, release):
     ##################################################################### 
     # install & config Cinder
     ##################################################################### 
@@ -780,14 +839,24 @@ def ubuntu_cinder_install(ipaddr, hostname):
     export_admin()
     os.system('openstack user create --domain default --password '+CINDER_PASS+' cinder')
     os.system('openstack role add --project service --user cinder admin')
-    os.system('openstack service create --name cinder --description "OpenStack Block Storage" volume')
-    os.system('openstack service create --name cinderv2 --description "OpenStack Block Storage" volumev2')
-    os.system('openstack endpoint create --region RegionOne volume public http://'+CINDER_NAME+':8776/v1/%\(tenant_id\)s')
-    os.system('openstack endpoint create --region RegionOne volume internal http://'+CINDER_NAME+':8776/v1/%\(tenant_id\)s')
-    os.system('openstack endpoint create --region RegionOne volume admin http://'+CINDER_NAME+':8776/v1/%\(tenant_id\)s')
-    os.system('openstack endpoint create --region RegionOne volumev2 public http://'+CINDER_NAME+':8776/v2/%\(tenant_id\)s')
-    os.system('openstack endpoint create --region RegionOne volumev2 internal http://'+CINDER_NAME+':8776/v2/%\(tenant_id\)s')
-    os.system('openstack endpoint create --region RegionOne volumev2 admin http://'+CINDER_NAME+':8776/v2/%\(tenant_id\)s')
+    if release == 'Ocata' or release == 'ocata' or release == 'Pike' or release == 'pike':
+        os.system('openstack service create --name cinderv2 --description "OpenStack Block Storage" volumev2')
+        os.system('openstack service create --name cinderv3 --description "OpenStack Block Storage" volumev3')
+        os.system('openstack endpoint create --region RegionOne volumev2 public http://'+CINDER_NAME+':8776/v2/%\(project_id\)s')
+        os.system('openstack endpoint create --region RegionOne volumev2 internal http://'+CINDER_NAME+':8776/v2/%\(project_id\)s')
+        os.system('openstack endpoint create --region RegionOne volumev2 admin http://'+CINDER_NAME+':8776/v2/%\(project_id\)s')
+        os.system('openstack endpoint create --region RegionOne volumev3 public http://'+CINDER_NAME+':8776/v3/%\(project_id\)s')
+        os.system('openstack endpoint create --region RegionOne volumev3 internal http://'+CINDER_NAME+':8776/v3/%\(project_id\)s')
+        os.system('openstack endpoint create --region RegionOne volumev3 admin http://'+CINDER_NAME+':8776/v3/%\(project_id\)s')
+    else:
+        os.system('openstack service create --name cinder --description "OpenStack Block Storage" volume')
+        os.system('openstack service create --name cinderv2 --description "OpenStack Block Storage" volumev2')
+        os.system('openstack endpoint create --region RegionOne volume public http://'+CINDER_NAME+':8776/v1/%\(tenant_id\)s')
+        os.system('openstack endpoint create --region RegionOne volume internal http://'+CINDER_NAME+':8776/v1/%\(tenant_id\)s')
+        os.system('openstack endpoint create --region RegionOne volume admin http://'+CINDER_NAME+':8776/v1/%\(tenant_id\)s')
+        os.system('openstack endpoint create --region RegionOne volumev2 public http://'+CINDER_NAME+':8776/v2/%\(tenant_id\)s')
+        os.system('openstack endpoint create --region RegionOne volumev2 internal http://'+CINDER_NAME+':8776/v2/%\(tenant_id\)s')
+        os.system('openstack endpoint create --region RegionOne volumev2 admin http://'+CINDER_NAME+':8776/v2/%\(tenant_id\)s')
 
     os.system('sudo apt-get install cinder-api cinder-scheduler -y')
 
@@ -819,8 +888,9 @@ def ubuntu_cinder_install(ipaddr, hostname):
     os.system('service nova-api restart')
     os.system('service cinder-scheduler restart')
     os.system('service cinder-api restart')
+    os.system('service apache2 restart')
 
-def ubuntu_heat_install(hostname):
+def ubuntu_heat_install(hostname, release):
     ##################################################################### 
     # install & config Cinder
     ##################################################################### 
@@ -885,7 +955,10 @@ def ubuntu_heat_install(hostname):
         config.set('clients_keystone', 'auth_uri', 'http://'+KEYSTONE_NAME+':35357')
         if 'ec2authtoken' not in sections:
             config.add_section('ec2authtoken')
-        config.set('ec2authtoken', 'auth_uri', 'http://'+KEYSTONE_NAME+':5000')
+        if release == 'Pike' or release == 'pike':
+            config.set('ec2authtoken', 'auth_uri', 'http://'+KEYSTONE_NAME+':5000/v3')
+        else:
+            config.set('ec2authtoken', 'auth_uri', 'http://'+KEYSTONE_NAME+':5000')
         config.write(open('/etc/heat/heat.conf', 'w'))
         #cfgfile.close()
 
@@ -926,7 +999,7 @@ def ubuntu_manila_install(ipaddr, hostname, release):
     #       may need to wait for a suitable SW package.
     ################################################################################################# 
     os.system('sudo apt-get install manila-api manila-scheduler python-manilaclient -y')
-    if release == 'Ocata' or release == 'ocata':
+    if release == 'Ocata' or release == 'ocata' or release == 'Pike' or release == 'pike':
         os.system('sudo apt-get install python-manila-ui -y')
 
     manila_default = {'transport_url':'rabbit://openstack:'+RABBIT_PASS+'@'+MQ_NAME, 'auth_strategy':'keystone', 'my_ip':ipaddr, 'default_share_type':'default_share_type', 'share_name_template':'share-%s', 'rootwrap_config':'/etc/manila/rootwrap.conf', 'api_paste_config':'/etc/manila/api-paste.ini'}
@@ -957,7 +1030,7 @@ def ubuntu_manila_install(ipaddr, hostname, release):
     os.system('su -s /bin/sh -c "manila-manage db sync" manila')
     os.system('service manila-scheduler restart')
     os.system('service manila-api restart')
-    if release == 'Ocata' or release == 'ocata':
+    if release == 'Ocata' or release == 'ocata' or release == 'Pike' or release == 'pike':
         os.system('service apache2 restart')
         os.system('service memcached restart')
     os.system('rm -rf /var/lib/manila/manila.sqlite')
@@ -1125,16 +1198,22 @@ def ubuntu_install(ipaddr, hostname, interface, network, release):
     ubuntu_db_install(ipaddr, hostname)
     ubuntu_mq_install(hostname)
     ubuntu_memcache_install(hostname)
+    if release == 'Pike' or release == 'pike':
+        ubuntu_etcd_install(ipaddr, hostname)
     ubuntu_keystone_install(hostname, release)
     create_env_script()
     ubuntu_glance_install(hostname)
     ubuntu_nova_install(ipaddr, hostname, release)
     ubuntu_neutron_install(ipaddr, hostname, interface, network, release)
     ubuntu_dashboard_install(hostname, network, release)
-    ubuntu_cinder_install(ipaddr, hostname)
-    ubuntu_heat_install(hostname)
+    ubuntu_cinder_install(ipaddr, hostname, release)
+    ubuntu_heat_install(hostname, release)
     ubuntu_manila_install(ipaddr, hostname, release)
-    ubuntu_trove_install(hostname)
+    ##################################################################### 
+    # have not verified Trove for Pike release yet
+    ##################################################################### 
+    if release != 'Pike' and release != 'pike':
+        ubuntu_trove_install(hostname)
     openstack_config(network)
 
 
@@ -1164,6 +1243,8 @@ def centos_client_install(release):
         os.system('yum install centos-release-openstack-newton -y')
     elif release == 'Ocata' or release == 'ocata':
         os.system('yum install centos-release-openstack-ocata -y')
+    elif release == 'Pike' or release == 'pike':
+        os.system('yum install centos-release-openstack-pike -y')
     os.system('yum upgrade -y')
     os.system('yum install python-openstackclient -y')
     os.system('yum install openstack-selinux -y')
@@ -1239,8 +1320,8 @@ def centos_memcache_install(hostname, release):
     # fix memcache launch failure
     if release == 'Newton' or release == 'newton':
         os.system('sed -i \'/OPTIONS/c OPTIONS= ""\' /etc/sysconfig/memcached')
-    elif release == 'Ocata' or release == 'ocata':
-        os.system('sed -i \'/OPTIONS/c OPTIONS= "-l 127.0.0.1,::1,"'+MEMCACHE_NAME+'\' /etc/sysconfig/memcached')
+    elif release == 'Ocata' or release == 'ocata' or release == 'Pike' or release == 'pike':
+        os.system('sed -i \'/OPTIONS/c OPTIONS= "-l 127.0.0.1,::1,'+MEMCACHE_NAME+'"\' /etc/sysconfig/memcached')
     os.system('systemctl enable memcached.service')
     os.system('systemctl start memcached.service')
 
@@ -1266,7 +1347,11 @@ def centos_keystone_install(hostname, release):
     with open('/etc/keystone/keystone.conf', 'rw') as cfgfile:
         config.readfp(cfgfile)
         sections = config.sections()
+        if 'database' not in sections:
+            config.add_section('database')
         config.set('database', 'connection', 'mysql+pymysql://keystone:'+KEYSTONE_DBPASS+'@'+DB_NAME+'/keystone')
+        if 'token' not in sections:
+            config.add_section('token')
         config.set('token', 'provider', 'fernet')
         config.write(open('/etc/keystone/keystone.conf', 'w'))
 
@@ -1275,7 +1360,7 @@ def centos_keystone_install(hostname, release):
     os.system('keystone-manage credential_setup --keystone-user keystone --keystone-group keystone')
     if release == 'Newton' or release == 'newton':
         os.system('keystone-manage bootstrap --bootstrap-password '+ADMIN_PASS+' --bootstrap-admin-url http://'+KEYSTONE_NAME+':35357/v3/ --bootstrap-internal-url http://'+KEYSTONE_NAME+':35357/v3/ --bootstrap-public-url http://'+KEYSTONE_NAME+':5000/v3/ --bootstrap-region-id RegionOne')
-    elif release == 'Ocata' or release == 'ocata':
+    elif release == 'Ocata' or release == 'ocata' or release == 'Pike' or release == 'pike':
         os.system('keystone-manage bootstrap --bootstrap-password '+ADMIN_PASS+' --bootstrap-admin-url http://'+KEYSTONE_NAME+':35357/v3/ --bootstrap-internal-url http://'+KEYSTONE_NAME+':5000/v3/ --bootstrap-public-url http://'+KEYSTONE_NAME+':5000/v3/ --bootstrap-region-id RegionOne')
 
     os.system('echo ServerName '+KEYSTONE_NAME+' >> /etc/httpd/conf/httpd.conf')
@@ -1391,7 +1476,7 @@ def centos_nova_install(ipaddr, hostname, release):
     cursor.execute('GRANT ALL PRIVILEGES ON nova_api.* TO \'nova\'@\'%\' IDENTIFIED BY \''+NOVA_DBPASS+'\';')
     cursor.execute('GRANT ALL PRIVILEGES ON nova.* TO \'nova\'@\'localhost\' IDENTIFIED BY \''+NOVA_DBPASS+'\';')
     cursor.execute('GRANT ALL PRIVILEGES ON nova.* TO \'nova\'@\'%\' IDENTIFIED BY \''+NOVA_DBPASS+'\';')
-    if release == 'Ocata' or release == 'ocata':
+    if release == 'Ocata' or release == 'ocata' or release == 'Pike' or release == 'pike':
         cursor.execute('DROP DATABASE IF EXISTS nova_cell0;')
         cursor.execute('CREATE DATABASE nova_cell0;')
         cursor.execute('GRANT ALL PRIVILEGES ON nova_cell0.* TO \'nova\'@\'localhost\' IDENTIFIED BY \''+NOVA_DBPASS+'\';')
@@ -1409,7 +1494,7 @@ def centos_nova_install(ipaddr, hostname, release):
 
         os.system('yum install openstack-nova-api openstack-nova-conductor openstack-nova-console openstack-nova-novncproxy openstack-nova-scheduler -y')
 
-    elif release == 'Ocata' or release == 'ocata':
+    elif release == 'Ocata' or release == 'ocata' or release == 'Pike' or release == 'pike':
         os.system('openstack endpoint create --region RegionOne compute public http://'+NOVA_NAME+':8774/v2.1')
         os.system('openstack endpoint create --region RegionOne compute internal http://'+NOVA_NAME+':8774/v2.1')
         os.system('openstack endpoint create --region RegionOne compute admin http://'+NOVA_NAME+':8774/v2.1')
@@ -1423,14 +1508,14 @@ def centos_nova_install(ipaddr, hostname, release):
         os.system('yum install openstack-nova-api openstack-nova-conductor openstack-nova-console openstack-nova-novncproxy openstack-nova-scheduler openstack-nova-placement-api -y')
 
 
-    if release == 'Ocata' or release == 'ocata':
+    if release == 'Ocata' or release == 'ocata' or release == 'Pike' or release == 'pike':
         default = {'enabled_apis':'osapi_compute,metadata', 'transport_url':'rabbit://openstack:'+RABBIT_PASS+'@'+MQ_NAME, 'my_ip':ipaddr, 'use_neutron':'True', 'firewall_driver':'nova.virt.firewall.NoopFirewallDriver', 'vif_plugging_is_fatal':'False', 'vif_plugging_timeout':'0'}
     elif release == 'Newton' or release == 'newton':
         default = {'enabled_apis':'osapi_compute,metadata', 'transport_url':'rabbit://openstack:'+RABBIT_PASS+'@'+MQ_NAME, 'auth_strategy':'keystone', 'my_ip':ipaddr, 'use_neutron':'True', 'firewall_driver':'nova.virt.firewall.NoopFirewallDriver', 'vif_plugging_is_fatal':'False', 'vif_plugging_timeout':'0'}
 
     nova_keystone_authtoken = {'auth_uri':'http://'+KEYSTONE_NAME+':5000','auth_url':'http://'+KEYSTONE_NAME+':35357', 'memcached_servers':MEMCACHE_NAME+':11211', 'auth_type':'password', 'project_domain_name':'default', 'user_domain_name': 'default', 'project_name':'service', 'username':'nova', 'password':NOVA_PASS}
 
-    if release == 'Ocata' or release == 'ocata':
+    if release == 'Ocata' or release == 'ocata' or release == 'Pike' or release == 'pike':
         placement = {'os_region_name':'RegionOne', 'auth_url':'http://'+KEYSTONE_NAME+':35357/v3', 'auth_type':'password', 'project_domain_name':'default', 'user_domain_name': 'default', 'project_name':'service', 'username':'placement', 'password':PLACEMENT_PASS}
 
     config = ConfigParser.ConfigParser()
@@ -1442,7 +1527,7 @@ def centos_nova_install(ipaddr, hostname, release):
         config.set('api_database', 'connection', 'mysql+pymysql://nova:'+NOVA_DBPASS+'@'+DB_NAME+'/nova_api')
         config.set('database', 'connection', 'mysql+pymysql://nova:'+NOVA_DBPASS+'@'+DB_NAME+'/nova')
 
-        if release == 'Ocata' or release == 'ocata':
+        if release == 'Ocata' or release == 'ocata' or release == 'Pike' or release == 'pike':
             if 'api' not in sections:
                 config.add_section('api')
             config.set('api', 'auth_strategy', 'keystone')
@@ -1456,7 +1541,7 @@ def centos_nova_install(ipaddr, hostname, release):
             config.set('keystone_authtoken', k, v)
         if 'vnc' not in sections:
             config.add_section('vnc')
-        if release == 'Ocata' or release == 'ocata':
+        if release == 'Ocata' or release == 'ocata' or release == 'Pike' or release == 'pike':
             config.set('vnc', 'enabled', 'true')
         config.set('vnc', 'vncserver_listen', '$my_ip')
         config.set('vnc', 'vncserver_proxyclient_address', '$my_ip')
@@ -1467,7 +1552,7 @@ def centos_nova_install(ipaddr, hostname, release):
             config.add_section('oslo_concurrency')
         config.set('oslo_concurrency', 'lock_path', '/var/lib/nova/tmp')
 
-        if release == 'Ocata' or release == 'ocata':
+        if release == 'Ocata' or release == 'ocata' or release == 'Pike' or release == 'pike':
             if 'placement' not in sections:
                 config.add_section('placement')
             for (k,v) in placement.iteritems():
@@ -1482,7 +1567,7 @@ def centos_nova_install(ipaddr, hostname, release):
     ##################################################################### 
     # enable access to Placement API
     ##################################################################### 
-    if release == 'Ocata' or release == 'ocata':
+    if release == 'Ocata' or release == 'ocata' or release == 'Pike' or release == 'pike':
         os.system('echo >> /etc/httpd/conf.d/00-nova-placement-api.conf')
         os.system('echo "<Directory /usr/bin>" >> /etc/httpd/conf.d/00-nova-placement-api.conf')
         os.system('echo "   <IfVersion >= 2.4>" >> /etc/httpd/conf.d/00-nova-placement-api.conf')
@@ -1494,12 +1579,13 @@ def centos_nova_install(ipaddr, hostname, release):
         os.system('echo "   </IfVersion>" >> /etc/httpd/conf.d/00-nova-placement-api.conf')
         os.system('echo "</Directory>" >> /etc/httpd/conf.d/00-nova-placement-api.conf')
 
+    os.system('systemctl restart httpd')
     os.system('su -s /bin/sh -c "nova-manage api_db sync" nova')
-    if release == 'Ocata' or release == 'ocata':
+    if release == 'Ocata' or release == 'ocata' or release == 'Pike' or release == 'pike':
         os.system('su -s /bin/sh -c "nova-manage cell_v2 map_cell0" nova')
         os.system('su -s /bin/sh -c "nova-manage cell_v2 create_cell --name=cell1 --verbose" nova')
     os.system('su -s /bin/sh -c "nova-manage db sync" nova')
-    if release == 'Ocata' or release == 'ocata':
+    if release == 'Ocata' or release == 'ocata' or release == 'Pike' or release == 'pike':
         os.system('nova-manage cell_v2 list_cells')
     os.system('systemctl enable openstack-nova-api.service openstack-nova-consoleauth.service openstack-nova-scheduler.service openstack-nova-conductor.service openstack-nova-novncproxy.service')
     os.system('systemctl start openstack-nova-api.service openstack-nova-consoleauth.service openstack-nova-scheduler.service openstack-nova-conductor.service openstack-nova-novncproxy.service')
@@ -1543,7 +1629,7 @@ def centos_neutron_install(ipaddr, hostname, interface, network, release):
         with open('/etc/neutron/l3_agent.ini', 'rw') as cfgfile:
             config.readfp(cfgfile)
             sections = config.sections()
-            if release == 'Ocata' or release == 'ocata':
+            if release == 'Ocata' or release == 'ocata' or release == 'Pike' or release == 'pike':
                 config.set('DEFAULT', 'interface_driver', 'linuxbridge')
             elif release == 'Newton' or release == 'newton':
                 config.set('DEFAULT', 'interface_driver', 'neutron.agent.linux.interface.BridgeInterfaceDriver')
@@ -1621,7 +1707,7 @@ def centos_neutron_install(ipaddr, hostname, interface, network, release):
     with open('/etc/neutron/dhcp_agent.ini', 'rw') as cfgfile:
         config.readfp(cfgfile)
         sections = config.sections()
-        if release == 'Ocata' or release == 'ocata':
+        if release == 'Ocata' or release == 'ocata' or release == 'Pike' or release == 'pike':
             config.set('DEFAULT', 'interface_driver', 'linuxbridge')
         elif release == 'Newton' or release == 'newton':
             config.set('DEFAULT', 'interface_driver', 'neutron.agent.linux.interface.BridgeInterfaceDriver')
@@ -1683,7 +1769,7 @@ def centos_redirect_page(hostname):
     index_html.write('</HTML>\n')
     index_html.close()
 
-def centos_dashboard_install(hostname, network):
+def centos_dashboard_install(hostname, network, release):
     ##################################################################### 
     # install & config dashboard
     ##################################################################### 
@@ -1693,7 +1779,11 @@ def centos_dashboard_install(hostname, network):
 
     os.system('sed -i \'/OPENSTACK_KEYSTONE_URL =/c OPENSTACK_KEYSTONE_URL = "http://%s:5000/v3" % OPENSTACK_HOST\' /etc/openstack-dashboard/local_settings')
 
-    os.system('sed -i "/CACHES = {/i\SESSION_ENGINE = \'django.contrib.sessions.backends.cache\'" /etc/openstack-dashboard/local_settings')
+    if release == 'Pike' or release == 'pike':
+        os.system('sed -i "/^CACHES = {/i\SESSION_ENGINE = \'django.contrib.sessions.backends.file\'" /etc/openstack-dashboard/local_settings')
+        os.system("sed -i \"/^CACHES = {/,/^}$/s/.*/CACHES = { 'default': {'BACKEND': 'django.core.cache.backends.memcached.MemcachedCache', 'LOCATION': '127.0.0.1:11211',}, }/g\" /etc/openstack-dashboard/local_settings")
+    else:
+        os.system('sed -i "/CACHES = {/i\SESSION_ENGINE = \'django.contrib.sessions.backends.cache\'" /etc/openstack-dashboard/local_settings')
 #    os.system('sed -i "/11211/c \'LOCATION\': \''+hostname+':11211\'," /etc/openstack-dashboard/local_settings')
 
     ##################################################################### 
@@ -1728,16 +1818,20 @@ def centos_dashboard_install(hostname, network):
 
     os.system('sed -i \'/TIME_ZONE/c TIME_ZONE = "Asia/Shanghai"\' /etc/openstack-dashboard/local_settings')
 #    os.system('sed -i "/DEFAULT_THEME/c DEFAULT_THEME = \'default\'" /etc/openstack-dashboard/local_settings')
-
+    ##################################################################### 
+    # A dashboard bug on Pike release. Workaround refer:
+    # https://bugzilla.redhat.com/show_bug.cgi?id=1478042
+    ##################################################################### 
+    if release == 'Pike' or release == 'pike':
+        os.system('sed -i "/WSGIProcessGroup/a\WSGIApplicationGroup %{GLOBAL}" /etc/httpd/conf.d/openstack-dashboard.conf')
 #    os.system('sed -i "/Timeout 300/c Timeout 600" /etc/apache2/apache2.conf')
-#    os.system('sed -i "/WSGIProcessGroup horizon/a\WSGIApplicationGroup %{GLOBAL}" /etc/apache2/conf-available/openstack-dashboard.conf')
     centos_redirect_page(hostname)
 
     os.system('iptables -I INPUT -p TCP --dport 80 -j ACCEPT')
     os.system('systemctl restart httpd.service memcached.service')
 
 
-def centos_cinder_install(ipaddr, hostname):
+def centos_cinder_install(ipaddr, hostname, release):
     ##################################################################### 
     # install & config Cinder
     ##################################################################### 
@@ -1754,14 +1848,24 @@ def centos_cinder_install(ipaddr, hostname):
     export_admin()
     os.system('openstack user create --domain default --password '+CINDER_PASS+' cinder')
     os.system('openstack role add --project service --user cinder admin')
-    os.system('openstack service create --name cinder --description "OpenStack Block Storage" volume')
-    os.system('openstack service create --name cinderv2 --description "OpenStack Block Storage" volumev2')
-    os.system('openstack endpoint create --region RegionOne volume public http://'+CINDER_NAME+':8776/v1/%\(tenant_id\)s')
-    os.system('openstack endpoint create --region RegionOne volume internal http://'+CINDER_NAME+':8776/v1/%\(tenant_id\)s')
-    os.system('openstack endpoint create --region RegionOne volume admin http://'+CINDER_NAME+':8776/v1/%\(tenant_id\)s')
-    os.system('openstack endpoint create --region RegionOne volumev2 public http://'+CINDER_NAME+':8776/v2/%\(tenant_id\)s')
-    os.system('openstack endpoint create --region RegionOne volumev2 internal http://'+CINDER_NAME+':8776/v2/%\(tenant_id\)s')
-    os.system('openstack endpoint create --region RegionOne volumev2 admin http://'+CINDER_NAME+':8776/v2/%\(tenant_id\)s')
+    if release == 'Ocata' or release == 'ocata' or release == 'Pike' or release == 'pike':
+        os.system('openstack service create --name cinderv2 --description "OpenStack Block Storage" volumev2')
+        os.system('openstack service create --name cinderv3 --description "OpenStack Block Storage" volumev3')
+        os.system('openstack endpoint create --region RegionOne volumev2 public http://'+CINDER_NAME+':8776/v2/%\(project_id\)s')
+        os.system('openstack endpoint create --region RegionOne volumev2 internal http://'+CINDER_NAME+':8776/v2/%\(project_id\)s')
+        os.system('openstack endpoint create --region RegionOne volumev2 admin http://'+CINDER_NAME+':8776/v2/%\(project_id\)s')
+        os.system('openstack endpoint create --region RegionOne volumev3 public http://'+CINDER_NAME+':8776/v3/%\(project_id\)s')
+        os.system('openstack endpoint create --region RegionOne volumev3 internal http://'+CINDER_NAME+':8776/v3/%\(project_id\)s')
+        os.system('openstack endpoint create --region RegionOne volumev3 admin http://'+CINDER_NAME+':8776/v3/%\(project_id\)s')
+    else:
+        os.system('openstack service create --name cinder --description "OpenStack Block Storage" volume')
+        os.system('openstack service create --name cinderv2 --description "OpenStack Block Storage" volumev2')
+        os.system('openstack endpoint create --region RegionOne volume public http://'+CINDER_NAME+':8776/v1/%\(tenant_id\)s')
+        os.system('openstack endpoint create --region RegionOne volume internal http://'+CINDER_NAME+':8776/v1/%\(tenant_id\)s')
+        os.system('openstack endpoint create --region RegionOne volume admin http://'+CINDER_NAME+':8776/v1/%\(tenant_id\)s')
+        os.system('openstack endpoint create --region RegionOne volumev2 public http://'+CINDER_NAME+':8776/v2/%\(tenant_id\)s')
+        os.system('openstack endpoint create --region RegionOne volumev2 internal http://'+CINDER_NAME+':8776/v2/%\(tenant_id\)s')
+        os.system('openstack endpoint create --region RegionOne volumev2 admin http://'+CINDER_NAME+':8776/v2/%\(tenant_id\)s')
 
     os.system('yum install openstack-cinder -y')
 
@@ -1794,7 +1898,7 @@ def centos_cinder_install(ipaddr, hostname):
     os.system('systemctl enable openstack-cinder-api.service openstack-cinder-scheduler.service')
     os.system('systemctl start openstack-cinder-api.service openstack-cinder-scheduler.service')
 
-def centos_heat_install(hostname):
+def centos_heat_install(hostname, release):
     ##################################################################### 
     # install & config Cinder
     ##################################################################### 
@@ -1859,7 +1963,10 @@ def centos_heat_install(hostname):
         config.set('clients_keystone', 'auth_uri', 'http://'+KEYSTONE_NAME+':35357')
         if 'ec2authtoken' not in sections:
             config.add_section('ec2authtoken')
-        config.set('ec2authtoken', 'auth_uri', 'http://'+KEYSTONE_NAME+':5000')
+        if release == 'Pike' or release == 'pike':
+            config.set('ec2authtoken', 'auth_uri', 'http://'+KEYSTONE_NAME+':5000/v3')
+        else:
+            config.set('ec2authtoken', 'auth_uri', 'http://'+KEYSTONE_NAME+':5000')
         config.write(open('/etc/heat/heat.conf', 'w'))
         #cfgfile.close()
 
@@ -2121,11 +2228,15 @@ def centos_install(ipaddr, hostname, interface, network, release):
     centos_glance_install(hostname)
     centos_nova_install(ipaddr, hostname, release)
     centos_neutron_install(ipaddr, hostname, interface, network, release)
-    centos_dashboard_install(hostname, network)
-    centos_cinder_install(ipaddr, hostname)
-    centos_heat_install(hostname)
+    centos_dashboard_install(hostname, network, release)
+    centos_cinder_install(ipaddr, hostname, release)
+    centos_heat_install(hostname, release)
     centos_manila_install(ipaddr, hostname)
-    centos_trove_install(hostname)
+    ##################################################################### 
+    # have not verified Trove for Pike release yet
+    ##################################################################### 
+    if release != 'Pike' and release != 'pike':
+        centos_trove_install(hostname)
     openstack_config(network)
 
 
@@ -2136,7 +2247,7 @@ def usage():
     print 'control_install.py [options]'
     print 'now only support Ubuntu16.04 and CentOS7'
     print 'Options:'
-    print '-r, --release=<Release>       openstack release (Newton or Ocata)'
+    print '-r, --release=<Release>       openstack release (Newton/Ocata/Pike)'
     print '-n, --network=<NetworkType>   network type (Provider or Self-service)'
     print '-m, --hostname=<HostName>     host name'
     print '-i, --ipaddr=<IPAddress>      host IP address'
@@ -2178,7 +2289,7 @@ def main(argv):
         usage()
         sys.exit()
 
-    if release != 'Newton' and release != 'Ocata':
+    if release != 'Newton' and release != 'Ocata' and release != 'Pike':
         usage()
         sys.exit()
 

@@ -1,6 +1,6 @@
 #! /bin/bash
 #
-# Copyright (C) 2016 Free Software Foundation,
+# Copyright (C) 2016, 2017 Free Software Foundation,
 # Inc.
 #
 # This program is free software: you can redistribute it and/or modify
@@ -23,7 +23,7 @@
 if [ $# -ne 5 ] ; then
 	echo Usage: "`basename $0` [ Provider | Self-service ] RELEASE HOSTNAME IPADDRESS INTERFACE"
 	echo "Currently only support Ubuntu16.04 and CentOS7"
-	echo "RELEASE      Openstack release. Now support Newton and Ocata"
+	echo "RELEASE      Openstack release. Now support Newton/Ocata/Pike"
 	echo "HOSTNAME     host name"
 	echo "IPADDRESS    host IP address"
 	echo "             for Self-service network, it should be"
@@ -50,12 +50,12 @@ fi
 if [ $PLATFORM == "Ubuntu" ] && [ $VERSION == "16.04" ]; then
     #echo "on Ubuntu platform"
     apt update && apt full-upgrade -y
-    apt install wget vim python python-mysqldb -y
+    apt install wget curl vim python python-mysqldb -y
     python control_install.py -n $NETWORK -r $RELEASE -m $HOSTNAME -i $IPADDR -f $INTERFACE
 elif [ $PLATFORM == "CentOS" ] && [ ${VERSION:0:2} == "7." ]; then
     #echo "on CentOS platform"
     yum upgrade -y
-    yum install wget vim python MySQL-python -y
+    yum install wget curl vim python MySQL-python -y
     python control_install.py -n $NETWORK -r $RELEASE -m $HOSTNAME -i $IPADDR -f $INTERFACE
 else
     echo "Unsupport host platform!"

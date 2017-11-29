@@ -19,7 +19,7 @@
 
 
 # This is an automation script for openstack compute node installation
-# on Ubuntu 16.04 or CentOS 7 host. Now it support Newton and Ocata release
+# on Ubuntu 16.04 or CentOS 7 host. Now it support Newton/Ocata/Pike release
 
 # Python environment should be installed on your Ubuntu 16.04 host.
 # If not, please use "apt-get install python" or "yum install python" to do that.
@@ -115,6 +115,8 @@ def ubuntu_client_install(release):
         os.system('sudo add-apt-repository cloud-archive:newton -y')
     elif release == 'Ocata' or release == 'ocata':
         os.system('sudo add-apt-repository cloud-archive:ocata -y')
+    elif release == 'Pike' or release == 'pike':
+        os.system('sudo add-apt-repository cloud-archive:pike -y')
     os.system('sudo apt-get update && sudo apt-get dist-upgrade -y')
     os.system('sudo apt-get install python-openstackclient -y')
     os.system('sudo apt-get update && sudo apt-get dist-upgrade -y')
@@ -126,7 +128,7 @@ def ubuntu_nova_install(ipaddr, release):
     ##################################################################### 
     os.system('sudo apt-get install nova-compute -y')
 
-    if release == 'Ocata' or release == 'ocata':
+    if release == 'Ocata' or release == 'ocata' or release == 'Pike' or release == 'pike':
         default = {'transport_url':'rabbit://openstack:'+RABBIT_PASS+'@'+MQ_NAME, 'my_ip':ipaddr, 'use_neutron':'True', 'firewall_driver':'nova.virt.firewall.NoopFirewallDriver', 'vif_plugging_is_fatal':'False', 'vif_plugging_timeout':'0'}
         placement = {'os_region_name':'RegionOne', 'auth_url':'http://'+KEYSTONE_NAME+':35357/v3', 'auth_type':'password', 'project_domain_name':'default', 'user_domain_name': 'default', 'project_name':'service', 'username':'placement', 'password':PLACEMENT_PASS}
 
@@ -147,7 +149,7 @@ def ubuntu_nova_install(ipaddr, release):
             config.set('DEFAULT', k, v)
         config.remove_option("DEFAULT","log-dir")
 
-        if release == 'Ocata' or release == 'ocata':
+        if release == 'Ocata' or release == 'ocata' or release == 'Pike' or release == 'pike':
             if 'api' not in sections:
                 config.add_section('api')
             config.set('api', 'auth_strategy', 'keystone')
@@ -167,7 +169,7 @@ def ubuntu_nova_install(ipaddr, release):
             config.add_section('oslo_concurrency')
         config.set('oslo_concurrency', 'lock_path', '/var/lib/nova/tmp')
 
-        if release == 'Ocata' or release == 'ocata':
+        if release == 'Ocata' or release == 'ocata' or release == 'Pike' or release == 'pike':
             if 'placement' not in sections:
                 config.add_section('placement')
             for (k,v) in placement.iteritems():
@@ -324,6 +326,8 @@ def centos_client_install(release):
         os.system('yum install centos-release-openstack-newton -y')
     elif release == 'Ocata' or release == 'ocata':
         os.system('yum install centos-release-openstack-ocata -y')
+    elif release == 'Pike' or release == 'pike':
+        os.system('yum install centos-release-openstack-pike -y')
     os.system('yum upgrade -y')
     os.system('yum install python-openstackclient -y')
     os.system('yum install openstack-selinux -y')
@@ -336,7 +340,7 @@ def centos_nova_install(ipaddr, release):
     ##################################################################### 
     os.system('yum install openstack-nova-compute -y')
 
-    if release == 'Ocata' or release == 'ocata':
+    if release == 'Ocata' or release == 'ocata' or release == 'Pike' or release == 'pike':
         default = {'enabled_apis':'osapi_compute,metadata', 'transport_url':'rabbit://openstack:'+RABBIT_PASS+'@'+MQ_NAME, 'my_ip':ipaddr, 'use_neutron':'True', 'firewall_driver':'nova.virt.firewall.NoopFirewallDriver'}
         placement = {'os_region_name':'RegionOne', 'auth_url':'http://'+KEYSTONE_NAME+':35357/v3', 'auth_type':'password', 'project_domain_name':'default', 'user_domain_name': 'default', 'project_name':'service', 'username':'placement', 'password':PLACEMENT_PASS}
 
@@ -357,7 +361,7 @@ def centos_nova_install(ipaddr, release):
             config.set('DEFAULT', k, v)
         config.remove_option("DEFAULT","log-dir")
 
-        if release == 'Ocata' or release == 'ocata':
+        if release == 'Ocata' or release == 'ocata' or release == 'Pike' or release == 'pike':
             if 'api' not in sections:
                 config.add_section('api')
             config.set('api', 'auth_strategy', 'keystone')
@@ -377,7 +381,7 @@ def centos_nova_install(ipaddr, release):
             config.add_section('oslo_concurrency')
         config.set('oslo_concurrency', 'lock_path', '/var/lib/nova/tmp')
 
-        if release == 'Ocata' or release == 'ocata':
+        if release == 'Ocata' or release == 'ocata' or release == 'Pike' or release == 'pike':
             if 'placement' not in sections:
                 config.add_section('placement')
             for (k,v) in placement.iteritems():
@@ -549,7 +553,7 @@ def usage():
     print 'compute_install.py [options]'
     print 'now only support Ubuntu16.04 and CentOS7'
     print 'Options:'
-    print '-r, --release=<Release>       openstack release (Newton or Ocata)'
+    print '-r, --release=<Release>       openstack release (Newton/Ocata/Pike)'
     print '-n, --network=<NetworkType>   network type (Provider or Self-service)'
     print '-m, --hostname=<HostName>     host name'
     print '-i, --ipaddr=<IPAddress>      host IP address'
@@ -591,7 +595,7 @@ def main(argv):
         usage()
         sys.exit()
 
-    if release != 'Newton' and release != 'Ocata':
+    if release != 'Newton' and release != 'Ocata' and release != 'Pike':
         usage()
         sys.exit()
 

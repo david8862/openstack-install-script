@@ -19,7 +19,7 @@
 
 
 # This is an automation script for openstack block storage node installation
-# on Ubuntu 16.04 or CentOS 7 host. Now it support Newton and Ocata release
+# on Ubuntu 16.04 or CentOS 7 host. Now it support Newton/Ocata/Pike release
 
 # Python environment should be installed on your Ubuntu 16.04 host.
 # If not, please use "apt-get install python" or "yum install python" to do that.
@@ -110,6 +110,8 @@ def ubuntu_client_install(release):
         os.system('sudo add-apt-repository cloud-archive:newton -y')
     elif release == 'Ocata' or release == 'ocata':
         os.system('sudo add-apt-repository cloud-archive:ocata -y')
+    elif release == 'Pike' or release == 'pike':
+        os.system('sudo add-apt-repository cloud-archive:pike -y')
     os.system('sudo apt-get update && sudo apt-get dist-upgrade -y')
     os.system('sudo apt-get install python-openstackclient -y')
     os.system('sudo apt-get update && sudo apt-get dist-upgrade -y')
@@ -243,6 +245,8 @@ def centos_client_install(release):
         os.system('yum install centos-release-openstack-newton -y')
     elif release == 'Ocata' or release == 'ocata':
         os.system('yum install centos-release-openstack-ocata -y')
+    elif release == 'Pike' or release == 'pike':
+        os.system('yum install centos-release-openstack-pike -y')
     os.system('yum upgrade -y')
     os.system('yum install python-openstackclient -y')
     os.system('yum install openstack-selinux -y')
@@ -361,7 +365,7 @@ def usage():
     print 'blkstor_install.py [options]'
     print 'now only support Ubuntu16.04 and CentOS7'
     print 'Options:'
-    print '-r, --release=<Release>       openstack release (Newton or Ocata)'
+    print '-r, --release=<Release>       openstack release (Newton/Ocata/Pike)'
     print '-v, --volume=<VolumeName>     Physical volume device name for cinder'
     print '                              service. e.g. sdb(not /dev/sdb!)'
     print '-m, --hostname=<HostName>     host name'
@@ -399,7 +403,7 @@ def main(argv):
         usage()
         sys.exit()
 
-    if release != 'Newton' and release != 'Ocata':
+    if release != 'Newton' and release != 'Ocata' and release != 'Pike':
         usage()
         sys.exit()
 
