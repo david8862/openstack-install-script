@@ -18,7 +18,7 @@ This project includes a set of automation scripts for following openstack servic
 * cinder
 * heat
 * manila
-* trove
+* trove (**not work**)
 * horizon(dashboard)
 
 ### 2. Compute Node

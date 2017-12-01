@@ -1210,10 +1210,9 @@ def ubuntu_install(ipaddr, hostname, interface, network, release):
     ubuntu_heat_install(hostname, release)
     ubuntu_manila_install(ipaddr, hostname, release)
     ##################################################################### 
-    # have not verified Trove for Pike release yet
+    # Trove doesn't work now
     ##################################################################### 
-    if release != 'Pike' and release != 'pike':
-        ubuntu_trove_install(hostname)
+    #ubuntu_trove_install(hostname)
     openstack_config(network)
 
 
@@ -1779,11 +1778,11 @@ def centos_dashboard_install(hostname, network, release):
 
     os.system('sed -i \'/OPENSTACK_KEYSTONE_URL =/c OPENSTACK_KEYSTONE_URL = "http://%s:5000/v3" % OPENSTACK_HOST\' /etc/openstack-dashboard/local_settings')
 
-    if release == 'Pike' or release == 'pike':
+    if release == 'Ocata' or release == 'ocata' or release == 'Pike' or release == 'pike':
         os.system('sed -i "/^CACHES = {/i\SESSION_ENGINE = \'django.contrib.sessions.backends.file\'" /etc/openstack-dashboard/local_settings')
-        os.system("sed -i \"/^CACHES = {/,/^}$/s/.*/CACHES = { 'default': {'BACKEND': 'django.core.cache.backends.memcached.MemcachedCache', 'LOCATION': '127.0.0.1:11211',}, }/g\" /etc/openstack-dashboard/local_settings")
     else:
-        os.system('sed -i "/CACHES = {/i\SESSION_ENGINE = \'django.contrib.sessions.backends.cache\'" /etc/openstack-dashboard/local_settings')
+        os.system('sed -i "/^CACHES = {/i\SESSION_ENGINE = \'django.contrib.sessions.backends.cache\'" /etc/openstack-dashboard/local_settings')
+    os.system("sed -i \"/^CACHES = {/,/^}$/s/.*/CACHES = { 'default': {'BACKEND': 'django.core.cache.backends.memcached.MemcachedCache', 'LOCATION': '127.0.0.1:11211',}, }/g\" /etc/openstack-dashboard/local_settings")
 #    os.system('sed -i "/11211/c \'LOCATION\': \''+hostname+':11211\'," /etc/openstack-dashboard/local_settings')
 
     ##################################################################### 
@@ -1822,8 +1821,7 @@ def centos_dashboard_install(hostname, network, release):
     # A dashboard bug on Pike release. Workaround refer:
     # https://bugzilla.redhat.com/show_bug.cgi?id=1478042
     ##################################################################### 
-    if release == 'Pike' or release == 'pike':
-        os.system('sed -i "/WSGIProcessGroup/a\WSGIApplicationGroup %{GLOBAL}" /etc/httpd/conf.d/openstack-dashboard.conf')
+    os.system('sed -i "/WSGIProcessGroup/a\WSGIApplicationGroup %{GLOBAL}" /etc/httpd/conf.d/openstack-dashboard.conf')
 #    os.system('sed -i "/Timeout 300/c Timeout 600" /etc/apache2/apache2.conf')
     centos_redirect_page(hostname)
 
@@ -2233,10 +2231,9 @@ def centos_install(ipaddr, hostname, interface, network, release):
     centos_heat_install(hostname, release)
     centos_manila_install(ipaddr, hostname)
     ##################################################################### 
-    # have not verified Trove for Pike release yet
+    # Trove doesn't work now
     ##################################################################### 
-    if release != 'Pike' and release != 'pike':
-        centos_trove_install(hostname)
+    #centos_trove_install(hostname)
     openstack_config(network)
 
 
